@@ -8,35 +8,54 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
+    /* Educational Theme - Professional Academic Colors */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 217 32% 17%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 217 32% 17%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 217 32% 17%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Primary: Academic Blue */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 217 91% 70%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Secondary: Professional Purple */
+    --secondary: 262 80% 50%;
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 217 32% 96%;
+    --muted-foreground: 217 10% 45%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Accent: Educational Green */
+    --accent: 142 76% 40%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 217 20% 88%;
+    --input: 217 20% 88%;
+    --ring: 217 91% 60%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
+
+    /* Educational Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(262 80% 50%));
+    --gradient-hero: linear-gradient(135deg, hsl(217 91% 60%) 0%, hsl(262 80% 50%) 50%, hsl(142 76% 40%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%), hsl(217 32% 98%));
+    
+    /* Elegant Shadows */
+    --shadow-elegant: 0 4px 20px -2px hsl(217 91% 60% / 0.1);
+    --shadow-card: 0 2px 10px -2px hsl(217 32% 17% / 0.05);
+    --shadow-glow: 0 0 30px hsl(217 91% 60% / 0.2);
+
+    /* Smooth Transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-spring: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 
     --sidebar-background: 0 0% 98%;
 
