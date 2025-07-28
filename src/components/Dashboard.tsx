@@ -43,7 +43,7 @@ export const Dashboard = ({
       title: "Create TOS",
       description: "Build Table of Specification",
       icon: Target,
-      action: "tos-builder",
+      action: "TOS Builder",
       color: "text-primary"
     },
     {

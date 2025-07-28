@@ -3,10 +3,11 @@ import { Header } from "@/components/Header";
 import { HeroSection } from "@/components/HeroSection";
 import { AuthForm } from "@/components/AuthForm";
 import { Dashboard } from "@/components/Dashboard";
+import { TOSBuilder } from "@/components/TOSBuilder";
 import { toast } from "sonner";
 
 const Index = () => {
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard'>('landing');
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard' | 'tos-builder'>('landing');
   const [user, setUser] = useState<{
     isAuthenticated: boolean;
     role?: 'admin' | 'teacher';
@@ -67,7 +68,11 @@ const Index = () => {
   };
 
   const handleNavigation = (section: string) => {
-    toast.info(`${section} feature coming soon!`);
+    if (section === 'TOS Builder') {
+      setCurrentView('tos-builder');
+    } else {
+      toast.info(`${section} feature coming soon!`);
+    }
   };
 
   return (
@@ -101,6 +106,18 @@ const Index = () => {
           userName={user.name!}
           onNavigate={handleNavigation}
         />
+      )}
+
+      {currentView === 'tos-builder' && user.isAuthenticated && (
+        <div className="container mx-auto py-8">
+          <TOSBuilder 
+            userName={user.name!}
+            onSave={(tosData) => {
+              console.log('TOS Data saved:', tosData);
+              toast.success('TOS Matrix saved successfully!');
+            }}
+          />
+        </div>
       )}
     </div>
   );
