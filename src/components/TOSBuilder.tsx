@@ -159,6 +159,14 @@ export const TOSBuilder = ({ userName, onSave }: TOSBuilderProps) => {
     }
   };
 
+  const handleGenerateQuestions = () => {
+    if (tosMatrix) {
+      toast.success("Question generation will be implemented in the next phase!");
+      // TODO: Implement question generation based on TOS matrix
+      // This will connect to the Question Bank and Test Generator
+    }
+  };
+
   if (showMatrix && tosMatrix) {
     return (
       <div className="space-y-6">
@@ -171,6 +179,25 @@ export const TOSBuilder = ({ userName, onSave }: TOSBuilderProps) => {
           </Button>
         </div>
         <TOSMatrix data={tosMatrix} />
+        
+        {/* Generate Questions Section */}
+        <Card className="mt-6">
+          <CardContent className="pt-6">
+            <div className="text-center space-y-4">
+              <p className="text-muted-foreground">
+                Once your TOS is finalized, click below to automatically generate matching test questions based on your instructional plan.
+              </p>
+              <Button
+                variant="default"
+                size="lg"
+                className="px-8 py-3"
+                onClick={handleGenerateQuestions}
+              >
+                🧠 Generate Questions from This TOS
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
