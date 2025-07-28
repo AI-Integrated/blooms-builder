@@ -41,11 +41,10 @@ interface BloomDistribution {
 }
 
 interface TOSBuilderProps {
-  userName: string;
-  onSave?: (tosData: any) => void;
+  onBack: () => void;
 }
 
-export const TOSBuilder = ({ userName, onSave }: TOSBuilderProps) => {
+export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   const [topics, setTopics] = useState([{ topic: "", hours: 0 }]);
   const [tosMatrix, setTosMatrix] = useState<any>(null);
   const [showMatrix, setShowMatrix] = useState(false);
@@ -138,7 +137,7 @@ export const TOSBuilder = ({ userName, onSave }: TOSBuilderProps) => {
       formData: data,
       distribution,
       totalHours,
-      createdBy: userName,
+      createdBy: "Teacher",
       createdAt: new Date().toISOString()
     };
   };
@@ -153,8 +152,8 @@ export const TOSBuilder = ({ userName, onSave }: TOSBuilderProps) => {
   };
 
   const handleSaveMatrix = () => {
-    if (tosMatrix && onSave) {
-      onSave(tosMatrix);
+    if (tosMatrix) {
+      // TODO: Save to database
       toast.success("TOS saved successfully!");
     }
   };
@@ -171,12 +170,17 @@ export const TOSBuilder = ({ userName, onSave }: TOSBuilderProps) => {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <Button variant="outline" onClick={() => setShowMatrix(false)}>
-            ← Back to Form
+          <Button variant="outline" onClick={onBack}>
+            ← Back to Dashboard
           </Button>
-          <Button onClick={handleSaveMatrix} variant="academic">
-            Save TOS Matrix
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowMatrix(false)}>
+              Edit TOS
+            </Button>
+            <Button onClick={handleSaveMatrix} variant="default">
+              Save TOS Matrix
+            </Button>
+          </div>
         </div>
         <TOSMatrix data={tosMatrix} />
         

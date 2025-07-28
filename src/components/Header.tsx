@@ -7,6 +7,7 @@ interface HeaderProps {
   userName?: string;
   onLogin?: () => void;
   onLogout?: () => void;
+  onNavigate?: (section: string) => void;
 }
 
 export const Header = ({ 
@@ -14,7 +15,8 @@ export const Header = ({
   userRole, 
   userName,
   onLogin,
-  onLogout 
+  onLogout,
+  onNavigate
 }: HeaderProps) => {
   return (
     <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
@@ -34,22 +36,37 @@ export const Header = ({
           <nav className="hidden md:flex items-center gap-6">
             {isAuthenticated && (
               <>
-                <a href="#dashboard" className="text-foreground/80 hover:text-foreground transition-smooth">
+                <button 
+                  onClick={() => onNavigate?.('Dashboard')} 
+                  className="text-foreground/80 hover:text-foreground transition-smooth"
+                >
                   Dashboard
-                </a>
-                <a href="#tos-builder" className="text-foreground/80 hover:text-foreground transition-smooth">
+                </button>
+                <button 
+                  onClick={() => onNavigate?.('TOS Builder')} 
+                  className="text-foreground/80 hover:text-foreground transition-smooth"
+                >
                   TOS Builder
-                </a>
-                <a href="#question-bank" className="text-foreground/80 hover:text-foreground transition-smooth">
+                </button>
+                <button 
+                  onClick={() => onNavigate?.('Question Bank')} 
+                  className="text-foreground/80 hover:text-foreground transition-smooth"
+                >
                   Question Bank
-                </a>
-                <a href="#test-generator" className="text-foreground/80 hover:text-foreground transition-smooth">
+                </button>
+                <button 
+                  onClick={() => onNavigate?.('Test Generator')} 
+                  className="text-foreground/80 hover:text-foreground transition-smooth"
+                >
                   Test Generator
-                </a>
+                </button>
                 {userRole === 'admin' && (
-                  <a href="#admin" className="text-foreground/80 hover:text-foreground transition-smooth">
+                  <button 
+                    onClick={() => onNavigate?.('Admin Panel')} 
+                    className="text-foreground/80 hover:text-foreground transition-smooth"
+                  >
                     Admin Panel
-                  </a>
+                  </button>
                 )}
               </>
             )}
