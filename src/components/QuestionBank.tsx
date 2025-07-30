@@ -63,9 +63,9 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
   const filteredQuestions = questions.filter(question => {
     return (
       (searchTerm === "" || question.text.toLowerCase().includes(searchTerm.toLowerCase())) &&
-      (selectedTopic === "" || question.topic === selectedTopic) &&
-      (selectedBloomLevel === "" || question.bloomLevel === selectedBloomLevel) &&
-      (selectedDifficulty === "" || question.difficulty === selectedDifficulty)
+      (selectedTopic === "" || selectedTopic === "all" || question.topic === selectedTopic) &&
+      (selectedBloomLevel === "" || selectedBloomLevel === "all" || question.bloomLevel === selectedBloomLevel) &&
+      (selectedDifficulty === "" || selectedDifficulty === "all" || question.difficulty === selectedDifficulty)
     );
   });
 
@@ -197,7 +197,7 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
                 <SelectValue placeholder="All Topics" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Topics</SelectItem>
+                <SelectItem value="all">All Topics</SelectItem>
                 {topics.map((topic) => (
                   <SelectItem key={topic} value={topic}>{topic}</SelectItem>
                 ))}
@@ -209,7 +209,7 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
                 <SelectValue placeholder="All Bloom Levels" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Bloom Levels</SelectItem>
+                <SelectItem value="all">All Bloom Levels</SelectItem>
                 {bloomLevels.map((level) => (
                   <SelectItem key={level} value={level}>{level}</SelectItem>
                 ))}
@@ -221,7 +221,7 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
                 <SelectValue placeholder="All Difficulties" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Difficulties</SelectItem>
+                <SelectItem value="all">All Difficulties</SelectItem>
                 <SelectItem value="Easy">Easy</SelectItem>
                 <SelectItem value="Average">Average</SelectItem>
                 <SelectItem value="Difficult">Difficult</SelectItem>
@@ -230,9 +230,9 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
 
             <Button variant="outline" onClick={() => {
               setSearchTerm("");
-              setSelectedTopic("");
-              setSelectedBloomLevel("");
-              setSelectedDifficulty("");
+              setSelectedTopic("all");
+              setSelectedBloomLevel("all");
+              setSelectedDifficulty("all");
             }}>
               Clear Filters
             </Button>
