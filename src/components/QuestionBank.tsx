@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, Edit, Trash2, BookOpen } from "lucide-react";
+import { Search, Plus, Edit, Trash2, BookOpen, Brain, CheckCircle, Clock, Filter, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Question {
@@ -78,30 +78,105 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={onBack}>
-            ← Back
-          </Button>
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl font-bold">Question Bank</h1>
+    <div className="min-h-screen bg-background">
+      <div className="container-custom section-padding">
+        {/* Animated Header */}
+        <div className="text-center mb-16 animate-slide-in-down">
+          <div className="inline-flex items-center gap-2 bg-primary/10 backdrop-blur-sm rounded-full px-6 py-3 mb-6">
+            <Brain className="w-5 h-5 text-primary" />
+            <span className="text-primary font-medium">Intelligent Question Management</span>
           </div>
+          <h1 className="text-4xl md:text-6xl font-bold text-foreground mb-4">
+            Question <span className="text-shimmer">Bank</span>
+          </h1>
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
+            Organize, categorize, and manage your questions with AI-powered insights
+          </p>
+          <Button variant="outline" onClick={onBack} className="interactive focus-ring">
+            ← Back to Dashboard
+          </Button>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Question
-        </Button>
-      </div>
 
-      {/* Add Question Form */}
-      {showAddForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Add New Question</CardTitle>
-          </CardHeader>
+        {/* Enhanced Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 animate-slide-in-up stagger-1">
+          <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20 card-hover">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-primary/20 rounded-xl">
+                  <Brain className="w-6 h-6 text-primary" />
+                </div>
+              </div>
+              <div className="text-3xl font-bold text-primary mb-1">
+                {questions.length}
+              </div>
+              <div className="text-sm text-muted-foreground">Total Questions</div>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-br from-secondary/5 to-secondary/10 border-secondary/20 card-hover">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-secondary/20 rounded-xl">
+                  <Clock className="w-6 h-6 text-secondary" />
+                </div>
+              </div>
+              <div className="text-3xl font-bold text-secondary mb-1">
+                {questions.filter(q => q.createdBy === 'ai').length}
+              </div>
+              <div className="text-sm text-muted-foreground">AI Generated</div>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-br from-accent/5 to-accent/10 border-accent/20 card-hover">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-accent/20 rounded-xl">
+                  <CheckCircle className="w-6 h-6 text-accent" />
+                </div>
+              </div>
+              <div className="text-3xl font-bold text-accent mb-1">
+                {questions.filter(q => q.createdBy === 'teacher').length}
+              </div>
+              <div className="text-sm text-muted-foreground">Teacher Created</div>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-br from-orange-500/5 to-orange-500/10 border-orange-500/20 card-hover">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-orange-500/20 rounded-xl">
+                  <Filter className="w-6 h-6 text-orange-500" />
+                </div>
+              </div>
+              <div className="text-3xl font-bold text-orange-500 mb-1">
+                {topics.length}
+              </div>
+              <div className="text-sm text-muted-foreground">Topics</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Action Bar */}
+        <div className="flex justify-between items-center mb-8 animate-slide-in-up stagger-2">
+          <h2 className="text-2xl font-bold text-foreground">Questions Library</h2>
+          <Button 
+            onClick={() => setShowAddForm(!showAddForm)} 
+            className="bg-gradient-primary hover:shadow-glow btn-hover interactive focus-ring"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Question
+          </Button>
+        </div>
+
+        {/* Add Question Form */}
+        {showAddForm && (
+          <Card className="bg-card/80 backdrop-blur-sm border border-border/50 shadow-elegant mb-8 animate-fade-in-scale">
+            <CardHeader className="border-b border-border/50">
+              <CardTitle className="flex items-center gap-2 text-2xl">
+                <Sparkles className="w-6 h-6 text-primary" />
+                Add New Question
+              </CardTitle>
+            </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -171,15 +246,19 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
             </div>
 
             <div className="flex gap-2">
-              <Button onClick={handleAddQuestion}>Save Question</Button>
-              <Button variant="outline" onClick={() => setShowAddForm(false)}>Cancel</Button>
+              <Button onClick={handleAddQuestion} className="bg-gradient-primary hover:shadow-glow btn-hover focus-ring">
+                Save Question
+              </Button>
+              <Button variant="outline" onClick={() => setShowAddForm(false)} className="focus-ring">
+                Cancel
+              </Button>
             </div>
           </CardContent>
-        </Card>
-      )}
+          </Card>
+        )}
 
-      {/* Filters */}
-      <Card>
+        {/* Enhanced Filters */}
+        <Card className="bg-card/80 backdrop-blur-sm border border-border/50 shadow-card animate-slide-in-up stagger-3">
         <CardContent className="pt-6">
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="relative">
@@ -228,23 +307,27 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
               </SelectContent>
             </Select>
 
-            <Button variant="outline" onClick={() => {
-              setSearchTerm("");
-              setSelectedTopic("all");
-              setSelectedBloomLevel("all");
-              setSelectedDifficulty("all");
-            }}>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setSearchTerm("");
+                setSelectedTopic("all");
+                setSelectedBloomLevel("all");
+                setSelectedDifficulty("all");
+              }}
+              className="hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20 focus-ring"
+            >
               Clear Filters
             </Button>
           </div>
         </CardContent>
-      </Card>
+        </Card>
 
-      {/* Questions List */}
-      <div className="space-y-4">
-        {filteredQuestions.map((question) => (
-          <Card key={question.id}>
-            <CardContent className="pt-6">
+        {/* Enhanced Questions List */}
+        <div className="space-y-6 animate-slide-in-up stagger-4">
+          {filteredQuestions.map((question, index) => (
+            <Card key={question.id} className="bg-card/80 backdrop-blur-sm border border-border/50 card-hover">
+              <CardContent className="p-8">
               <div className="flex justify-between items-start mb-4">
                 <div className="flex-1">
                   <p className="text-sm text-muted-foreground mb-2">#{question.id}</p>
@@ -277,26 +360,29 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
                 </div>
 
                 <div className="flex gap-2 ml-4">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" className="hover:bg-primary/10 hover:border-primary interactive focus-ring">
                     <Edit className="h-4 w-4" />
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" className="hover:bg-destructive/10 hover:border-destructive hover:text-destructive interactive focus-ring">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             </CardContent>
-          </Card>
-        ))}
-      </div>
+            </Card>
+          ))}
+        </div>
 
-      {filteredQuestions.length === 0 && (
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <p className="text-muted-foreground">No questions found matching your criteria.</p>
-          </CardContent>
-        </Card>
-      )}
+        {filteredQuestions.length === 0 && (
+          <Card className="bg-card/80 backdrop-blur-sm border border-border/50 animate-fade-in-scale">
+            <CardContent className="p-12 text-center">
+              <Brain className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-50" />
+              <h3 className="text-xl font-semibold text-foreground mb-2">No questions found</h3>
+              <p className="text-muted-foreground">Try adjusting your search criteria or add some new questions.</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 };

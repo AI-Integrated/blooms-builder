@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Brain, FileText, Target, Zap } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Brain, FileText, Target, Zap, Sparkles, Clock, Database, Download } from "lucide-react";
 import heroImage from "@/assets/hero-education.jpg";
 
 interface HeroSectionProps {
@@ -10,95 +10,120 @@ interface HeroSectionProps {
 
 export const HeroSection = ({ onGetStarted, onLearnMore }: HeroSectionProps) => {
   return (
-    <section className="relative min-h-screen flex items-center">
-      {/* Background Image with Overlay */}
-      <div 
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: `url(${heroImage})` }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-r from-background via-background/90 to-background/70" />
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
+      {/* Enhanced Background */}
+      <div className="absolute inset-0">
+        <img 
+          src={heroImage} 
+          alt="Educational background" 
+          className="w-full h-full object-cover opacity-30 animate-fade-in-scale"
+        />
+        <div className="absolute inset-0 bg-gradient-hero"></div>
+        
+        {/* Floating Elements */}
+        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-primary/10 rounded-full blur-3xl animate-float"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-48 h-48 bg-secondary/10 rounded-full blur-2xl animate-float stagger-2"></div>
+        <div className="absolute top-1/3 right-1/3 w-32 h-32 bg-accent/10 rounded-full blur-xl animate-float stagger-3"></div>
       </div>
 
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-        <div className="max-w-4xl mx-auto text-center space-y-8">
-          {/* Main Heading */}
-          <div className="space-y-4">
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight">
-              AI-Powered{" "}
-              <span className="bg-gradient-hero bg-clip-text text-transparent">
-                Test Generation
-              </span>{" "}
-              for Educators
-            </h1>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Create comprehensive tests with Table of Specification alignment, 
-              AI-generated questions, and instant PDF exports. Transform your 
-              assessment workflow today.
-            </p>
+      {/* Content */}
+      <div className="relative z-10 container-custom text-center">
+        {/* Badge */}
+        <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm rounded-full px-6 py-3 mb-8 animate-slide-in-down">
+          <Sparkles className="w-5 h-5 text-primary" />
+          <span className="text-foreground font-medium">AI-Powered Assessment Creation</span>
+        </div>
+
+        {/* Main Heading */}
+        <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold mb-8 animate-slide-in-up">
+          <span className="block text-foreground leading-tight">Transform Your</span>
+          <span className="block text-shimmer leading-tight">Teaching Experience</span>
+        </h1>
+
+        {/* Subheading */}
+        <p className="text-xl md:text-2xl text-muted-foreground mb-12 max-w-4xl mx-auto leading-relaxed animate-slide-in-up stagger-1">
+          Create comprehensive assessments aligned with Bloom's Taxonomy using advanced AI. 
+          Build smarter tests that truly measure student understanding.
+        </p>
+
+        {/* Stats */}
+        <div className="flex flex-wrap justify-center gap-8 mb-12 animate-slide-in-up stagger-2">
+          <div className="text-center">
+            <div className="text-3xl font-bold text-primary">10x</div>
+            <div className="text-sm text-muted-foreground">Faster Creation</div>
           </div>
-
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button 
-              variant="hero" 
-              size="lg" 
-              onClick={onGetStarted}
-              className="text-lg px-8 py-3"
-            >
-              Get Started Free
-            </Button>
-            <Button 
-              variant="outline" 
-              size="lg" 
-              onClick={onLearnMore}
-              className="text-lg px-8 py-3"
-            >
-              Learn More
-            </Button>
+          <div className="text-center">
+            <div className="text-3xl font-bold text-secondary">500+</div>
+            <div className="text-sm text-muted-foreground">Question Types</div>
           </div>
-
-          {/* Feature Cards */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mt-16">
-            <Card className="p-6 text-center bg-gradient-card border-0 shadow-card hover:shadow-elegant transition-smooth">
-              <div className="w-12 h-12 mx-auto mb-4 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Target className="h-6 w-6 text-primary" />
-              </div>
-              <h3 className="font-semibold mb-2">TOS Builder</h3>
-              <p className="text-sm text-muted-foreground">
-                Automatic calculation and alignment with Bloom's Taxonomy
-              </p>
-            </Card>
-
-            <Card className="p-6 text-center bg-gradient-card border-0 shadow-card hover:shadow-elegant transition-smooth">
-              <div className="w-12 h-12 mx-auto mb-4 rounded-lg bg-secondary/10 flex items-center justify-center">
-                <Brain className="h-6 w-6 text-secondary" />
-              </div>
-              <h3 className="font-semibold mb-2">AI Questions</h3>
-              <p className="text-sm text-muted-foreground">
-                Smart generation of questions by topic and difficulty level
-              </p>
-            </Card>
-
-            <Card className="p-6 text-center bg-gradient-card border-0 shadow-card hover:shadow-elegant transition-smooth">
-              <div className="w-12 h-12 mx-auto mb-4 rounded-lg bg-accent/10 flex items-center justify-center">
-                <FileText className="h-6 w-6 text-accent" />
-              </div>
-              <h3 className="font-semibold mb-2">Question Bank</h3>
-              <p className="text-sm text-muted-foreground">
-                Organize and manage your questions with smart categorization
-              </p>
-            </Card>
-
-            <Card className="p-6 text-center bg-gradient-card border-0 shadow-card hover:shadow-elegant transition-smooth">
-              <div className="w-12 h-12 mx-auto mb-4 rounded-lg bg-primary-glow/10 flex items-center justify-center">
-                <Zap className="h-6 w-6 text-primary-glow" />
-              </div>
-              <h3 className="font-semibold mb-2">Instant Export</h3>
-              <p className="text-sm text-muted-foreground">
-                Generate PDF tests, answer keys, and TOS matrices instantly
-              </p>
-            </Card>
+          <div className="text-center">
+            <div className="text-3xl font-bold text-accent">100%</div>
+            <div className="text-sm text-muted-foreground">Bloom's Aligned</div>
           </div>
+        </div>
+
+        {/* CTA Buttons */}
+        <div className="flex flex-col sm:flex-row gap-6 justify-center mb-20 animate-slide-in-up stagger-3">
+          <Button 
+            size="lg" 
+            onClick={onGetStarted}
+            className="text-lg px-10 py-6 bg-gradient-primary hover:shadow-glow btn-hover interactive focus-ring"
+          >
+            <Target className="w-5 h-5 mr-2" />
+            Start Building Tests
+          </Button>
+          <Button 
+            variant="outline" 
+            size="lg" 
+            onClick={onLearnMore}
+            className="text-lg px-10 py-6 border-2 hover:bg-primary/10 focus-ring interactive"
+          >
+            <Clock className="w-5 h-5 mr-2" />
+            Watch Demo
+          </Button>
+        </div>
+
+        {/* Enhanced Feature Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-6xl mx-auto">
+          <Card className="bg-card/80 backdrop-blur-sm border border-border/50 card-hover animate-slide-in-up stagger-1">
+            <CardContent className="p-8 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-primary to-primary-glow rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-card">
+                <Target className="w-8 h-8 text-primary-foreground" />
+              </div>
+              <h3 className="text-xl font-semibold text-card-foreground mb-3">TOS Builder</h3>
+              <p className="text-muted-foreground leading-relaxed">Create detailed Table of Specifications with AI-powered curriculum alignment</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card/80 backdrop-blur-sm border border-border/50 card-hover animate-slide-in-up stagger-2">
+            <CardContent className="p-8 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-secondary to-secondary/80 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-card">
+                <Brain className="w-8 h-8 text-secondary-foreground" />
+              </div>
+              <h3 className="text-xl font-semibold text-card-foreground mb-3">AI Questions</h3>
+              <p className="text-muted-foreground leading-relaxed">Generate intelligent questions using advanced natural language processing</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card/80 backdrop-blur-sm border border-border/50 card-hover animate-slide-in-up stagger-3">
+            <CardContent className="p-8 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-accent to-accent/80 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-card">
+                <Database className="w-8 h-8 text-accent-foreground" />
+              </div>
+              <h3 className="text-xl font-semibold text-card-foreground mb-3">Question Bank</h3>
+              <p className="text-muted-foreground leading-relaxed">Organize and manage your question library with smart categorization</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card/80 backdrop-blur-sm border border-border/50 card-hover animate-slide-in-up stagger-4">
+            <CardContent className="p-8 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-card">
+                <Download className="w-8 h-8 text-white" />
+              </div>
+              <h3 className="text-xl font-semibold text-card-foreground mb-3">Instant Export</h3>
+              <p className="text-muted-foreground leading-relaxed">Export your tests in multiple formats ready for immediate distribution</p>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </section>
