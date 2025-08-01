@@ -36,11 +36,11 @@ export const HeroSection = ({ onGetStarted, onLearnMore }: HeroSectionProps) => 
         </p>
 
         {/* CTA Buttons */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
+        <div className="flex flex-col sm:flex-row gap-6 justify-center mb-16">
           <Button 
             size="lg" 
             onClick={onGetStarted}
-            className="text-lg px-8 py-4"
+            className="text-lg px-8 py-4 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
           >
             <Target className="w-5 h-5 mr-2" />
             Start Building Tests
@@ -49,7 +49,7 @@ export const HeroSection = ({ onGetStarted, onLearnMore }: HeroSectionProps) => 
             variant="outline" 
             size="lg" 
             onClick={onLearnMore}
-            className="text-lg px-8 py-4 border-white/30 text-white hover:bg-white/10"
+            className="text-lg px-8 py-4 border-2 border-white/40 text-white bg-white/10 backdrop-blur-sm hover:bg-white/20 hover:border-white/60 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
           >
             Learn More
           </Button>
