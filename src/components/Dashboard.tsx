@@ -70,6 +70,16 @@ export const Dashboard = ({
     }
   ];
 
+  const adminActions = [
+    {
+      title: "AI Review Queue",
+      description: "Review AI-generated questions",
+      icon: CheckCircle,
+      action: "ai-approval",
+      color: "text-green-600"
+    }
+  ];
+
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Welcome Header */}
@@ -163,6 +173,32 @@ export const Dashboard = ({
           ))}
         </div>
       </div>
+
+      {/* Admin-specific Quick Actions */}
+      {userRole === 'admin' && (
+        <div className="space-y-4">
+          <h2 className="text-2xl font-semibold">Admin Tools</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {adminActions.map((action, index) => (
+              <Card 
+                key={`admin-${index}`}
+                className="bg-gradient-card border-0 shadow-card hover:shadow-elegant transition-smooth cursor-pointer group"
+                onClick={() => onNavigate?.(action.action)}
+              >
+                <CardHeader className="text-center space-y-4">
+                  <div className="mx-auto w-12 h-12 rounded-lg bg-muted/50 group-hover:bg-muted flex items-center justify-center transition-smooth">
+                    <action.icon className={`h-6 w-6 ${action.color}`} />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">{action.title}</CardTitle>
+                    <CardDescription>{action.description}</CardDescription>
+                  </div>
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Analytics Dashboard */}
       <div className="space-y-4">

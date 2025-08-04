@@ -6,10 +6,11 @@ import { Dashboard } from "@/components/Dashboard";
 import { TOSBuilder } from "@/components/TOSBuilder";
 import { QuestionBank } from "@/components/QuestionBank";
 import { TestGenerator } from "@/components/TestGenerator";
+import { AIApprovalWorkflow } from "@/components/AIApprovalWorkflow";
 import { toast } from "sonner";
 
 const Index = () => {
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard' | 'tos-builder' | 'question-bank' | 'test-generator'>('landing');
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard' | 'tos-builder' | 'question-bank' | 'test-generator' | 'ai-approval'>('landing');
   const [user, setUser] = useState<{
     isAuthenticated: boolean;
     role?: 'admin' | 'teacher';
@@ -72,10 +73,12 @@ const Index = () => {
   const handleNavigation = (section: string) => {
     if (section === 'TOS Builder') {
       setCurrentView('tos-builder');
-    } else if (section === 'Question Bank') {
+    } else if (section === 'question-bank') {
       setCurrentView('question-bank');
-    } else if (section === 'Test Generator') {
+    } else if (section === 'test-generator') {
       setCurrentView('test-generator');
+    } else if (section === 'ai-approval') {
+      setCurrentView('ai-approval');
     } else if (section === 'Dashboard') {
       setCurrentView('dashboard');
     } else {
@@ -133,6 +136,10 @@ const Index = () => {
         <div className="container mx-auto py-8">
           <TestGenerator onBack={() => setCurrentView('dashboard')} />
         </div>
+      )}
+
+      {currentView === 'ai-approval' && user.isAuthenticated && user.role === 'admin' && (
+        <AIApprovalWorkflow onBack={() => setCurrentView('dashboard')} />
       )}
     </div>
   );
