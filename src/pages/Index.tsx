@@ -8,10 +8,11 @@ import { QuestionBank } from "@/components/QuestionBank";
 import { TestGenerator } from "@/components/TestGenerator";
 import { AIApprovalWorkflow } from "@/components/AIApprovalWorkflow";
 import { RubricManager } from "@/components/RubricManager";
+import { MultiVersionTestGenerator } from "@/components/MultiVersionTestGenerator";
 import { toast } from "sonner";
 
 const Index = () => {
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard' | 'tos-builder' | 'question-bank' | 'test-generator' | 'ai-approval' | 'rubric-manager'>('landing');
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard' | 'tos-builder' | 'question-bank' | 'test-generator' | 'ai-approval' | 'rubric-manager' | 'multi-version-test'>('landing');
   const [user, setUser] = useState<{
     isAuthenticated: boolean;
     role?: 'admin' | 'teacher';
@@ -82,6 +83,8 @@ const Index = () => {
       setCurrentView('ai-approval');
     } else if (section === 'rubric-manager') {
       setCurrentView('rubric-manager');
+    } else if (section === 'multi-version-test') {
+      setCurrentView('multi-version-test');
     } else if (section === 'Dashboard') {
       setCurrentView('dashboard');
     } else {
@@ -147,6 +150,10 @@ const Index = () => {
 
       {currentView === 'rubric-manager' && user.isAuthenticated && (
         <RubricManager onBack={() => setCurrentView('dashboard')} />
+      )}
+
+      {currentView === 'multi-version-test' && user.isAuthenticated && (
+        <MultiVersionTestGenerator onBack={() => setCurrentView('dashboard')} />
       )}
     </div>
   );
