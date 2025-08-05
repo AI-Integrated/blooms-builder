@@ -62,11 +62,11 @@ export const Dashboard = ({
       color: "text-accent"
     },
     {
-      title: "AI Assistant",
-      description: "Get question suggestions",
-      icon: Brain,
-      action: "ai-assistant",
-      color: "text-primary-glow"
+      title: "Manage Rubrics",
+      description: "Create evaluation rubrics",
+      icon: BarChart3,
+      action: "rubric-manager",
+      color: "text-green-600"
     }
   ];
 
@@ -77,6 +77,13 @@ export const Dashboard = ({
       icon: CheckCircle,
       action: "ai-approval",
       color: "text-green-600"
+    },
+    {
+      title: "AI Assistant",
+      description: "Get question suggestions",
+      icon: Brain,
+      action: "ai-assistant",
+      color: "text-primary-glow"
     }
   ];
 

@@ -7,10 +7,11 @@ import { TOSBuilder } from "@/components/TOSBuilder";
 import { QuestionBank } from "@/components/QuestionBank";
 import { TestGenerator } from "@/components/TestGenerator";
 import { AIApprovalWorkflow } from "@/components/AIApprovalWorkflow";
+import { RubricManager } from "@/components/RubricManager";
 import { toast } from "sonner";
 
 const Index = () => {
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard' | 'tos-builder' | 'question-bank' | 'test-generator' | 'ai-approval'>('landing');
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard' | 'tos-builder' | 'question-bank' | 'test-generator' | 'ai-approval' | 'rubric-manager'>('landing');
   const [user, setUser] = useState<{
     isAuthenticated: boolean;
     role?: 'admin' | 'teacher';
@@ -79,6 +80,8 @@ const Index = () => {
       setCurrentView('test-generator');
     } else if (section === 'ai-approval') {
       setCurrentView('ai-approval');
+    } else if (section === 'rubric-manager') {
+      setCurrentView('rubric-manager');
     } else if (section === 'Dashboard') {
       setCurrentView('dashboard');
     } else {
@@ -140,6 +143,10 @@ const Index = () => {
 
       {currentView === 'ai-approval' && user.isAuthenticated && user.role === 'admin' && (
         <AIApprovalWorkflow onBack={() => setCurrentView('dashboard')} />
+      )}
+
+      {currentView === 'rubric-manager' && user.isAuthenticated && (
+        <RubricManager onBack={() => setCurrentView('dashboard')} />
       )}
     </div>
   );

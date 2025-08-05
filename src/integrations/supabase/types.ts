@@ -14,7 +14,99 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      questions: {
+        Row: {
+          ai_confidence_score: number | null
+          bloom_level: string
+          choices: Json | null
+          correct_answer: string | null
+          created_at: string
+          created_by: string
+          difficulty: string
+          id: string
+          knowledge_dimension: string
+          needs_review: boolean | null
+          question_text: string
+          question_type: string
+          topic: string
+          updated_at: string
+        }
+        Insert: {
+          ai_confidence_score?: number | null
+          bloom_level: string
+          choices?: Json | null
+          correct_answer?: string | null
+          created_at?: string
+          created_by?: string
+          difficulty: string
+          id?: string
+          knowledge_dimension: string
+          needs_review?: boolean | null
+          question_text: string
+          question_type: string
+          topic: string
+          updated_at?: string
+        }
+        Update: {
+          ai_confidence_score?: number | null
+          bloom_level?: string
+          choices?: Json | null
+          correct_answer?: string | null
+          created_at?: string
+          created_by?: string
+          difficulty?: string
+          id?: string
+          knowledge_dimension?: string
+          needs_review?: boolean | null
+          question_text?: string
+          question_type?: string
+          topic?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      rubrics: {
+        Row: {
+          created_at: string
+          created_by: string
+          criteria: Json
+          description: string | null
+          grade_level: string | null
+          id: string
+          performance_levels: Json
+          subject: string
+          title: string
+          total_points: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          criteria: Json
+          description?: string | null
+          grade_level?: string | null
+          id?: string
+          performance_levels: Json
+          subject: string
+          title: string
+          total_points?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          criteria?: Json
+          description?: string | null
+          grade_level?: string | null
+          id?: string
+          performance_levels?: Json
+          subject?: string
+          title?: string
+          total_points?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
