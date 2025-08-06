@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -10,6 +10,8 @@ import { Separator } from "@/components/ui/separator";
 import { Plus, Trash2, Calculator } from "lucide-react";
 import { toast } from "sonner";
 import { TOSMatrix } from "./TOSMatrix";
+import { useCollaborativeEditing } from "@/hooks/useCollaborativeEditing";
+import { CollaborationIndicator } from "./CollaborationIndicator";
 
 const topicSchema = z.object({
   topic: z.string().min(1, "Topic name is required"),
@@ -49,11 +51,35 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   const [tosMatrix, setTosMatrix] = useState<any>(null);
   const [showMatrix, setShowMatrix] = useState(false);
 
-  const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<TOSFormData>({
+  // Generate document ID for collaboration
+  const documentId = `tos-builder-${Date.now()}`;
+  
+  const form = useForm<TOSFormData>({
     resolver: zodResolver(tosSchema),
     defaultValues: {
       totalItems: 50,
       topics: topics
+    }
+  });
+
+  const { register, handleSubmit, formState: { errors }, setValue, watch } = form;
+
+  const {
+    users,
+    documentData,
+    isConnected,
+    currentUser,
+    broadcastChange,
+    saveToDatabase
+  } = useCollaborativeEditing({
+    documentId,
+    documentType: 'tos',
+    initialData: { topics },
+    onDataChange: (data) => {
+      if (data.topics) {
+        setTopics(data.topics);
+        form.reset(data);
+      }
     }
   });
 
@@ -78,6 +104,9 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     newTopics[index] = { ...newTopics[index], [field]: value };
     setTopics(newTopics);
     setValue("topics", newTopics);
+    
+    // Broadcast changes for collaborative editing
+    broadcastChange({ topics: newTopics });
   };
 
   const calculateTOSMatrix = (data: TOSFormData) => {
@@ -210,9 +239,16 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-academic-primary">
-            <Calculator className="h-5 w-5" />
-            Table of Specification Builder
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-academic-primary">
+              <Calculator className="h-5 w-5" />
+              Table of Specification Builder
+            </div>
+            <CollaborationIndicator 
+              users={users}
+              isConnected={isConnected}
+              currentUser={currentUser}
+            />
           </CardTitle>
         </CardHeader>
         <CardContent>
