@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { TOSMatrix } from "./TOSMatrix";
 import { useCollaborativeEditing } from "@/hooks/useCollaborativeEditing";
 import { CollaborationIndicator } from "./CollaborationIndicator";
+import { supabase } from "@/integrations/supabase/client";
 
 const topicSchema = z.object({
   topic: z.string().min(1, "Topic name is required"),
@@ -187,11 +188,46 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     }
   };
 
-  const handleGenerateQuestions = () => {
-    if (tosMatrix) {
-      toast.success("Question generation will be implemented in the next phase!");
-      // TODO: Implement question generation based on TOS matrix
-      // This will connect to the Question Bank and Test Generator
+  const handleGenerateQuestions = async () => {
+    if (!tosMatrix) return;
+    
+    try {
+      toast.loading("Generating questions from TOS matrix...");
+      
+      const { data, error } = await supabase.functions.invoke('generate-questions-from-tos', {
+        body: { tosMatrix }
+      });
+      
+      if (error) throw error;
+      
+      // Save generated questions to database
+      if (data.questions && data.questions.length > 0) {
+        const questionsToSave = data.questions.map((q: any) => ({
+          question_text: q.question_text,
+          question_type: q.question_type,
+          choices: q.choices,
+          correct_answer: q.correct_answer,
+          bloom_level: q.bloom_level,
+          difficulty: q.difficulty,
+          topic: q.topic,
+          knowledge_dimension: q.knowledge_dimension || 'factual',
+          created_by: 'AI Generated from TOS'
+        }));
+        
+        const { error: saveError } = await supabase
+          .from('questions')
+          .insert(questionsToSave);
+          
+        if (saveError) throw saveError;
+        
+        toast.success(`Successfully generated ${data.questions.length} questions from TOS!`);
+        
+        // Navigate to Question Bank to view generated questions
+        // You could add navigation logic here if needed
+      }
+    } catch (error) {
+      console.error('Error generating questions:', error);
+      toast.error('Failed to generate questions. Please try again.');
     }
   };
 
