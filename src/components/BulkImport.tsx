@@ -178,9 +178,21 @@ const BulkImport: React.FC<BulkImportProps> = ({ onClose, onImportComplete }) =>
         created_by: 'bulk_import'
       }));
 
+      // Add AI auto-approval logic
+      const questionsWithApproval = questionsToInsert.map(question => ({
+        ...question,
+        // Auto-approve if AI confidence is high (>= 0.8)
+        approved: (question.ai_confidence_score || 0) >= 0.8,
+        approved_by: (question.ai_confidence_score || 0) >= 0.8 ? 'AI' : null,
+        approval_confidence: question.ai_confidence_score,
+        approval_notes: (question.ai_confidence_score || 0) >= 0.8 
+          ? 'Auto-approved by AI due to high confidence score' 
+          : 'Requires manual review due to low confidence score'
+      }));
+
       const { error } = await (supabase as any)
         .from('questions')
-        .insert(questionsToInsert);
+        .insert(questionsWithApproval);
 
       if (error) {
         throw new Error(`Database error: ${error.message}`);

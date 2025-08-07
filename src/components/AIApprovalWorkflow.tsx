@@ -29,6 +29,10 @@ interface AIQuestion {
   correct_answer?: string;
   ai_confidence_score?: number;
   needs_review: boolean;
+  approved: boolean;
+  approved_by?: string;
+  approval_notes?: string;
+  approval_confidence?: number;
   created_at: string;
   created_by: string;
 }
@@ -79,10 +83,17 @@ export const AIApprovalWorkflow = ({ onBack }: AIApprovalWorkflowProps) => {
   const handleApproveQuestion = async (questionId: string) => {
     setProcessingId(questionId);
     try {
+      const question = pendingQuestions.find(q => q.id === questionId);
+      const adminNotes = rejectionReason[questionId] || "";
+      
       const { error } = await (supabase as any)
         .from('questions')
         .update({ 
           needs_review: false,
+          approved: true,
+          approved_by: 'admin',
+          approval_notes: adminNotes,
+          approval_confidence: question?.ai_confidence_score || null,
           updated_at: new Date().toISOString()
         })
         .eq('id', questionId);
@@ -97,6 +108,11 @@ export const AIApprovalWorkflow = ({ onBack }: AIApprovalWorkflowProps) => {
       });
 
       await fetchPendingQuestions();
+      setRejectionReason(prev => {
+        const newReasons = { ...prev };
+        delete newReasons[questionId];
+        return newReasons;
+      });
     } catch (error) {
       console.error('Error approving question:', error);
       toast({
@@ -112,9 +128,17 @@ export const AIApprovalWorkflow = ({ onBack }: AIApprovalWorkflowProps) => {
   const handleRejectQuestion = async (questionId: string) => {
     setProcessingId(questionId);
     try {
+      const adminNotes = rejectionReason[questionId] || "Question rejected during admin review";
+      
       const { error } = await (supabase as any)
         .from('questions')
-        .delete()
+        .update({
+          needs_review: false,
+          approved: false,
+          approved_by: 'admin',
+          approval_notes: adminNotes,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', questionId);
 
       if (error) {
@@ -123,7 +147,7 @@ export const AIApprovalWorkflow = ({ onBack }: AIApprovalWorkflowProps) => {
 
       toast({
         title: "Question Rejected",
-        description: "The question has been removed from the review queue.",
+        description: "The question has been marked as rejected with your notes.",
         variant: "destructive",
       });
 

@@ -17,6 +17,10 @@ export type Database = {
       questions: {
         Row: {
           ai_confidence_score: number | null
+          approval_confidence: number | null
+          approval_notes: string | null
+          approved: boolean | null
+          approved_by: string | null
           bloom_level: string
           choices: Json | null
           correct_answer: string | null
@@ -33,6 +37,10 @@ export type Database = {
         }
         Insert: {
           ai_confidence_score?: number | null
+          approval_confidence?: number | null
+          approval_notes?: string | null
+          approved?: boolean | null
+          approved_by?: string | null
           bloom_level: string
           choices?: Json | null
           correct_answer?: string | null
@@ -49,6 +57,10 @@ export type Database = {
         }
         Update: {
           ai_confidence_score?: number | null
+          approval_confidence?: number | null
+          approval_notes?: string | null
+          approved?: boolean | null
+          approved_by?: string | null
           bloom_level?: string
           choices?: Json | null
           correct_answer?: string | null

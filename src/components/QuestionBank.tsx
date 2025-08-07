@@ -45,9 +45,11 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
   const fetchQuestions = async () => {
     setLoading(true);
     try {
+      // Only fetch approved questions for test generation
       const { data, error } = await (supabase as any)
         .from('questions')
         .select('*')
+        .eq('approved', true)
         .order('created_at', { ascending: false });
 
       if (error) {

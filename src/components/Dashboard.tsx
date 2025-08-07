@@ -290,14 +290,18 @@ export const Dashboard = ({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-primary">47</div>
                 <p className="text-sm text-muted-foreground">Active Teachers</p>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-secondary">1,234</div>
-                <p className="text-sm text-muted-foreground">Total Questions</p>
+                <p className="text-sm text-muted-foreground">Approved Questions</p>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-yellow-500">23</div>
+                <p className="text-sm text-muted-foreground">Pending Review</p>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-accent">89</div>
