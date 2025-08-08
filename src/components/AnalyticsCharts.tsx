@@ -20,7 +20,16 @@ import {
   Line,
   ResponsiveContainer,
 } from "recharts";
-import { BarChart3, PieChart as PieIcon, TrendingUp, Brain } from "lucide-react";
+import { 
+  BarChart3, 
+  PieChart as PieIcon, 
+  TrendingUp, 
+  Brain, 
+  CheckCircle, 
+  Clock, 
+  Target,
+  Activity
+} from "lucide-react";
 import { useAnalytics } from "@/hooks/useAnalytics";
 
 const BLOOM_COLORS = {
@@ -36,6 +45,23 @@ const BLOOM_COLORS = {
 const CREATOR_COLORS = {
   "AI Generated": "hsl(var(--primary))",
   "Teacher Created": "hsl(var(--secondary))"
+};
+
+const DIFFICULTY_COLORS = {
+  "Easy": "hsl(var(--secondary))",
+  "Average": "hsl(var(--primary))",
+  "Hard": "hsl(var(--destructive))",
+  "Unknown": "hsl(var(--muted-foreground))"
+};
+
+const APPROVAL_COLORS = {
+  "Approved": "hsl(var(--secondary))",
+  "Pending Review": "hsl(var(--primary))"
+};
+
+const USAGE_COLORS = {
+  "Used in Tests": "hsl(var(--primary))",
+  "Unused": "hsl(var(--muted))"
 };
 
 export const AnalyticsCharts = () => {
@@ -78,7 +104,7 @@ export const AnalyticsCharts = () => {
   return (
     <div className="space-y-6">
       {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="bg-gradient-card border-0 shadow-card">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Questions</CardTitle>
@@ -121,9 +147,22 @@ export const AnalyticsCharts = () => {
             </p>
           </CardContent>
         </Card>
+
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Approved Questions</CardTitle>
+            <CheckCircle className="h-4 w-4 text-secondary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{analytics.approvedQuestions}</div>
+            <p className="text-xs text-muted-foreground">
+              {analytics.pendingApproval} pending review
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Charts */}
+      {/* Primary Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Bloom's Distribution Pie Chart */}
         <Card className="bg-gradient-card border-0 shadow-card">
@@ -229,6 +268,237 @@ export const AnalyticsCharts = () => {
                     }}
                   />
                 </BarChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Difficulty Distribution */}
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5" />
+              Difficulty Distribution
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {analytics.difficultySpread.length > 0 ? (
+              <ChartContainer
+                config={chartConfig}
+                className="mx-auto aspect-square max-h-[300px]"
+              >
+                <PieChart>
+                  <Pie
+                    data={analytics.difficultySpread}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    innerRadius={40}
+                    paddingAngle={2}
+                  >
+                    {analytics.difficultySpread.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={DIFFICULTY_COLORS[entry.name as keyof typeof DIFFICULTY_COLORS] || DIFFICULTY_COLORS.Unknown}
+                      />
+                    ))}
+                  </Pie>
+                  <ChartTooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length > 0) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="rounded-lg border bg-background p-2 shadow-md">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="flex flex-col">
+                                <span className="text-[0.70rem] uppercase text-muted-foreground">
+                                  {data.name}
+                                </span>
+                                <span className="font-bold text-muted-foreground">
+                                  {data.value} questions ({data.percentage}%)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </PieChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Approval Status */}
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5" />
+              Approval Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {analytics.approvalStats.length > 0 ? (
+              <ChartContainer config={chartConfig} className="max-h-[300px]">
+                <BarChart data={analytics.approvalStats}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
+                  <XAxis 
+                    dataKey="name" 
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                  />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <Bar 
+                    dataKey="value" 
+                    radius={[4, 4, 0, 0]}
+                    fill="hsl(var(--secondary))"
+                  />
+                  <ChartTooltip
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="rounded-lg border bg-background p-2 shadow-md">
+                            <p className="font-medium">{label}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {payload[0].value} questions
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </BarChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Secondary Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Topic Analysis */}
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Topic Analysis (Top 10)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {analytics.topicAnalysis.length > 0 ? (
+              <ChartContainer config={chartConfig} className="max-h-[300px]">
+                <BarChart data={analytics.topicAnalysis} layout="horizontal">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
+                  <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <YAxis 
+                    dataKey="topic" 
+                    type="category" 
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={10}
+                    width={80}
+                  />
+                  <Bar 
+                    dataKey="questionCount" 
+                    radius={[0, 4, 4, 0]}
+                    fill="hsl(var(--accent))"
+                  />
+                  <ChartTooltip
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="rounded-lg border bg-background p-2 shadow-md">
+                            <p className="font-medium">{label}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {payload[0].value} questions
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </BarChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Usage Statistics */}
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5" />
+              Question Usage
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {analytics.usageStats.length > 0 ? (
+              <ChartContainer
+                config={chartConfig}
+                className="mx-auto aspect-square max-h-[300px]"
+              >
+                <PieChart>
+                  <Pie
+                    data={analytics.usageStats}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    innerRadius={40}
+                    paddingAngle={2}
+                  >
+                    {analytics.usageStats.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={USAGE_COLORS[entry.name as keyof typeof USAGE_COLORS] || "hsl(var(--muted))"}
+                      />
+                    ))}
+                  </Pie>
+                  <ChartTooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length > 0) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="rounded-lg border bg-background p-2 shadow-md">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="flex flex-col">
+                                <span className="text-[0.70rem] uppercase text-muted-foreground">
+                                  {data.name}
+                                </span>
+                                <span className="font-bold text-muted-foreground">
+                                  {data.value} questions ({data.percentage}%)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </PieChart>
               </ChartContainer>
             ) : (
               <div className="flex items-center justify-center h-[300px] text-muted-foreground">
