@@ -10,10 +10,11 @@ import { AIApprovalWorkflow } from "@/components/AIApprovalWorkflow";
 import { RubricManager } from "@/components/RubricManager";
 import { MultiVersionTestGenerator } from "@/components/MultiVersionTestGenerator";
 import { CollaborativeQuestionBank } from "@/components/CollaborativeQuestionBank";
+import { EssayGradingInterface } from "@/components/EssayGradingInterface";
 import { toast } from "sonner";
 
 const Index = () => {
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard' | 'tos-builder' | 'question-bank' | 'test-generator' | 'ai-approval' | 'rubric-manager' | 'multi-version-test' | 'collaborative-questions'>('landing');
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'dashboard' | 'tos-builder' | 'question-bank' | 'test-generator' | 'ai-approval' | 'rubric-manager' | 'multi-version-test' | 'collaborative-questions' | 'essay-grading'>('landing');
   const [user, setUser] = useState<{
     isAuthenticated: boolean;
     role?: 'admin' | 'teacher';
@@ -88,6 +89,8 @@ const Index = () => {
       setCurrentView('multi-version-test');
     } else if (section === 'collaborative-questions') {
       setCurrentView('collaborative-questions');
+    } else if (section === 'essay-grading') {
+      setCurrentView('essay-grading');
     } else if (section === 'Dashboard') {
       setCurrentView('dashboard');
     } else {
@@ -161,6 +164,10 @@ const Index = () => {
 
       {currentView === 'collaborative-questions' && user.isAuthenticated && (
         <CollaborativeQuestionBank />
+      )}
+
+      {currentView === 'essay-grading' && user.isAuthenticated && (
+        <EssayGradingInterface onBack={() => setCurrentView('dashboard')} />
       )}
     </div>
   );

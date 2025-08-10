@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { FileText, Download, Eye, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { RubricAnswerKey } from "./RubricAnswerKey";
+import { supabase } from "@/integrations/supabase/client";
 
 interface TestGeneratorProps {
   onBack: () => void;
@@ -25,6 +27,7 @@ export const TestGenerator = ({ onBack }: TestGeneratorProps) => {
   const { toast } = useToast();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedTest, setGeneratedTest] = useState<GeneratedQuestion[] | null>(null);
+  const [rubrics, setRubrics] = useState<Record<string, any>>({});
 
   // Mock TOS data - this would come from the actual TOS Builder
   const mockTOS = {
@@ -76,6 +79,43 @@ export const TestGenerator = ({ onBack }: TestGeneratorProps) => {
       difficulty: "Difficult"
     }
   ];
+
+  useEffect(() => {
+    if (generatedTest) {
+      loadRubrics();
+    }
+  }, [generatedTest]);
+
+  const loadRubrics = async () => {
+    try {
+      const essayQuestions = generatedTest?.filter(q => q.type === 'Essay') || [];
+      if (essayQuestions.length === 0) return;
+
+      const questionIds = essayQuestions.map(q => q.id.toString());
+      
+      const { data: rubricsData, error } = await (supabase as any)
+        .from('question_rubrics')
+        .select(`
+          *,
+          criteria:rubric_criteria(*)
+        `)
+        .in('question_id', questionIds);
+
+      if (error) throw error;
+
+      const rubricsMap: Record<string, any> = {};
+      (rubricsData || []).forEach(rubric => {
+        rubricsMap[rubric.question_id] = {
+          ...rubric,
+          criteria: rubric.criteria.sort((a, b) => a.order_index - b.order_index)
+        };
+      });
+      
+      setRubrics(rubricsMap);
+    } catch (error) {
+      console.error('Error loading rubrics:', error);
+    }
+  };
 
   const handleGenerateTest = async () => {
     setIsGenerating(true);
@@ -243,6 +283,22 @@ export const TestGenerator = ({ onBack }: TestGeneratorProps) => {
                               <Badge variant="outline" className="text-xs">{question.topic}</Badge>
                               <Badge variant="outline" className="text-xs">{question.bloomLevel}</Badge>
                             </div>
+                            
+                            {/* Show rubric for essay questions */}
+                            {question.type === 'Essay' && rubrics[question.id.toString()] && (
+                              <RubricAnswerKey
+                                question={{
+                                  id: question.id.toString(),
+                                  question_text: question.text,
+                                  question_type: 'essay',
+                                  topic: question.topic,
+                                  bloom_level: question.bloomLevel,
+                                  difficulty: question.difficulty
+                                }}
+                                rubric={rubrics[question.id.toString()]}
+                                questionNumber={question.id}
+                              />
+                            )}
                           </div>
                         </div>
                       </div>
@@ -271,6 +327,22 @@ export const TestGenerator = ({ onBack }: TestGeneratorProps) => {
                               <Badge variant="outline" className="text-xs">{question.topic}</Badge>
                               <Badge variant="outline" className="text-xs">{question.bloomLevel}</Badge>
                             </div>
+                            
+                            {/* Show rubric for essay questions */}
+                            {question.type === 'Essay' && rubrics[question.id.toString()] && (
+                              <RubricAnswerKey
+                                question={{
+                                  id: question.id.toString(),
+                                  question_text: question.text,
+                                  question_type: 'essay',
+                                  topic: question.topic,
+                                  bloom_level: question.bloomLevel,
+                                  difficulty: question.difficulty
+                                }}
+                                rubric={rubrics[question.id.toString()]}
+                                questionNumber={question.id}
+                              />
+                            )}
                           </div>
                         </div>
                       </div>
@@ -299,6 +371,22 @@ export const TestGenerator = ({ onBack }: TestGeneratorProps) => {
                               <Badge variant="outline" className="text-xs">{question.topic}</Badge>
                               <Badge variant="outline" className="text-xs">{question.bloomLevel}</Badge>
                             </div>
+                            
+                            {/* Show rubric for essay questions */}
+                            {question.type === 'Essay' && rubrics[question.id.toString()] && (
+                              <RubricAnswerKey
+                                question={{
+                                  id: question.id.toString(),
+                                  question_text: question.text,
+                                  question_type: 'essay',
+                                  topic: question.topic,
+                                  bloom_level: question.bloomLevel,
+                                  difficulty: question.difficulty
+                                }}
+                                rubric={rubrics[question.id.toString()]}
+                                questionNumber={question.id}
+                              />
+                            )}
                           </div>
                         </div>
                       </div>

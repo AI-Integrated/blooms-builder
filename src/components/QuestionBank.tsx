@@ -6,10 +6,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, Edit, Trash2, BookOpen, Brain, CheckCircle, Clock, Filter, Sparkles, Upload } from "lucide-react";
+import { Search, Plus, Edit, Trash2, BookOpen, Brain, CheckCircle, Clock, Filter, Sparkles, Upload, GraduationCap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import BulkImport from './BulkImport';
+import { QuestionForm } from './QuestionForm';
 
 interface Question {
   id: string;
@@ -35,6 +36,7 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -96,11 +98,39 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
   });
 
   const handleAddQuestion = () => {
-    toast({
-      title: "Success",
-      description: "Question added successfully!"
-    });
+    setEditingQuestion(null);
     setShowAddForm(false);
+    fetchQuestions(); // Refresh the list
+  };
+
+  const handleEditQuestion = (question: Question) => {
+    setEditingQuestion(question);
+    setShowAddForm(true);
+  };
+
+  const handleDeleteQuestion = async (questionId: string) => {
+    try {
+      const { error } = await (supabase as any)
+        .from('questions')
+        .delete()
+        .eq('id', questionId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Question deleted successfully!"
+      });
+      
+      await fetchQuestions();
+    } catch (error) {
+      console.error('Error deleting question:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete question",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -187,6 +217,15 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
             onClose={() => setShowBulkImport(false)} 
             onImportComplete={fetchQuestions}
           />
+        ) : showAddForm ? (
+          <QuestionForm
+            onSave={handleAddQuestion}
+            onCancel={() => {
+              setShowAddForm(false);
+              setEditingQuestion(null);
+            }}
+            existingQuestion={editingQuestion}
+          />
         ) : (
           <>
             {/* Action Bar */}
@@ -202,7 +241,18 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
                   Bulk Import
                 </Button>
                 <Button 
-                  onClick={() => setShowAddForm(!showAddForm)} 
+                  onClick={() => setShowAddForm(true)}
+                  variant="outline"
+                  className="interactive focus-ring"
+                >
+                  <GraduationCap className="w-4 h-4 mr-2" />
+                  Grade Essays
+                </Button>
+                <Button 
+                  onClick={() => {
+                    setEditingQuestion(null);
+                    setShowAddForm(true);
+                  }} 
                   className="bg-gradient-primary hover:shadow-glow btn-hover interactive focus-ring"
                 >
                   <Plus className="w-4 h-4 mr-2" />
@@ -211,94 +261,8 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
               </div>
             </div>
 
-        {/* Add Question Form */}
-        {showAddForm && (
-          <Card className="bg-card/80 backdrop-blur-sm border border-border/50 shadow-elegant mb-8 animate-fade-in-scale">
-            <CardHeader className="border-b border-border/50">
-              <CardTitle className="flex items-center gap-2 text-2xl">
-                <Sparkles className="w-6 h-6 text-primary" />
-                Add New Question
-              </CardTitle>
-            </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="questionType">Question Type</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="multiple-choice">Multiple Choice</SelectItem>
-                    <SelectItem value="essay">Essay</SelectItem>
-                    <SelectItem value="true-false">True/False</SelectItem>
-                    <SelectItem value="fill-blank">Fill in the Blank</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="topic">Topic</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select topic" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {topics.map((topic) => (
-                      <SelectItem key={topic} value={topic}>{topic}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="bloomLevel">Bloom's Level</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select level" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {bloomLevels.map((level) => (
-                      <SelectItem key={level} value={level}>{level}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="difficulty">Difficulty</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select difficulty" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Easy">Easy</SelectItem>
-                    <SelectItem value="Average">Average</SelectItem>
-                    <SelectItem value="Difficult">Difficult</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
 
-            <div>
-              <Label htmlFor="questionText">Question Text</Label>
-              <Textarea 
-                placeholder="Enter your question here..."
-                className="min-h-[100px]"
-              />
-            </div>
 
-            <div className="flex gap-2">
-              <Button onClick={handleAddQuestion} className="bg-gradient-primary hover:shadow-glow btn-hover focus-ring">
-                Save Question
-              </Button>
-              <Button variant="outline" onClick={() => setShowAddForm(false)} className="focus-ring">
-                Cancel
-              </Button>
-            </div>
-          </CardContent>
-          </Card>
-        )}
 
         {/* Enhanced Filters */}
         <Card className="bg-card/80 backdrop-blur-sm border border-border/50 shadow-card animate-slide-in-up stagger-3">
@@ -422,10 +386,16 @@ export const QuestionBank = ({ onBack }: QuestionBankProps) => {
 
                       <div className="flex gap-2 ml-4">
                         <Button variant="outline" size="sm" className="hover:bg-primary/10 hover:border-primary interactive focus-ring">
-                          <Edit className="h-4 w-4" />
+                          <Edit 
+                            className="h-4 w-4" 
+                            onClick={() => handleEditQuestion(question)}
+                          />
                         </Button>
                         <Button variant="outline" size="sm" className="hover:bg-destructive/10 hover:border-destructive hover:text-destructive interactive focus-ring">
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 
+                            className="h-4 w-4" 
+                            onClick={() => handleDeleteQuestion(question.id)}
+                          />
                         </Button>
                       </div>
                     </div>

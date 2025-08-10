@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      question_rubrics: {
+        Row: {
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          question_id: string
+          title: string
+          total_points: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          question_id: string
+          title: string
+          total_points?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          question_id?: string
+          title?: string
+          total_points?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "question_rubrics_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       questions: {
         Row: {
           ai_confidence_score: number | null
@@ -77,6 +118,89 @@ export type Database = {
         }
         Relationships: []
       }
+      rubric_criteria: {
+        Row: {
+          created_at: string
+          criterion_name: string
+          description: string | null
+          id: string
+          max_points: number
+          order_index: number
+          rubric_id: string
+        }
+        Insert: {
+          created_at?: string
+          criterion_name: string
+          description?: string | null
+          id?: string
+          max_points: number
+          order_index?: number
+          rubric_id: string
+        }
+        Update: {
+          created_at?: string
+          criterion_name?: string
+          description?: string | null
+          id?: string
+          max_points?: number
+          order_index?: number
+          rubric_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rubric_criteria_rubric_id_fkey"
+            columns: ["rubric_id"]
+            isOneToOne: false
+            referencedRelation: "question_rubrics"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      rubric_scores: {
+        Row: {
+          comments: string | null
+          created_at: string
+          criterion_id: string
+          graded_by: string
+          id: string
+          response_id: string
+          score: number
+        }
+        Insert: {
+          comments?: string | null
+          created_at?: string
+          criterion_id: string
+          graded_by: string
+          id?: string
+          response_id: string
+          score?: number
+        }
+        Update: {
+          comments?: string | null
+          created_at?: string
+          criterion_id?: string
+          graded_by?: string
+          id?: string
+          response_id?: string
+          score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rubric_scores_criterion_id_fkey"
+            columns: ["criterion_id"]
+            isOneToOne: false
+            referencedRelation: "rubric_criteria"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rubric_scores_response_id_fkey"
+            columns: ["response_id"]
+            isOneToOne: false
+            referencedRelation: "student_responses"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       rubrics: {
         Row: {
           created_at: string
@@ -118,6 +242,53 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      student_responses: {
+        Row: {
+          graded: boolean | null
+          graded_at: string | null
+          graded_by: string | null
+          id: string
+          question_id: string
+          response_text: string
+          student_id: string | null
+          student_name: string
+          submitted_at: string
+          total_score: number | null
+        }
+        Insert: {
+          graded?: boolean | null
+          graded_at?: string | null
+          graded_by?: string | null
+          id?: string
+          question_id: string
+          response_text: string
+          student_id?: string | null
+          student_name: string
+          submitted_at?: string
+          total_score?: number | null
+        }
+        Update: {
+          graded?: boolean | null
+          graded_at?: string | null
+          graded_by?: string | null
+          id?: string
+          question_id?: string
+          response_text?: string
+          student_id?: string | null
+          student_name?: string
+          submitted_at?: string
+          total_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_responses_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          }
+        ]
       }
     }
     Views: {

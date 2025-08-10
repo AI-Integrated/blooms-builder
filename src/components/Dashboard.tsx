@@ -12,7 +12,8 @@ import {
   Clock,
   CheckCircle,
   BarChart3,
-  Plus
+  Plus,
+  GraduationCap
 } from "lucide-react";
 
 interface DashboardProps {
@@ -77,6 +78,13 @@ export const Dashboard = ({
       icon: BarChart3,
       action: "rubric-manager",
       color: "text-green-600"
+    },
+    {
+      title: "Grade Essays",
+      description: "Grade essay responses with rubrics",
+      icon: GraduationCap,
+      action: "essay-grading",
+      color: "text-purple-600"
     }
   ];
 
