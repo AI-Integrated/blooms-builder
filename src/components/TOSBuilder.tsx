@@ -7,12 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, Calculator } from "lucide-react";
+import { Plus, Trash2, Calculator, Users } from "lucide-react";
 import { toast } from "sonner";
 import { TOSMatrix } from "./TOSMatrix";
 import { useCollaborativeEditing } from "@/hooks/useCollaborativeEditing";
 import { CollaborationIndicator } from "./CollaborationIndicator";
 import { supabase } from "@/integrations/supabase/client";
+import { CollaborativeDocumentManager } from "./CollaborativeDocumentManager";
 
 const topicSchema = z.object({
   topic: z.string().min(1, "Topic name is required"),
@@ -51,6 +52,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   const [topics, setTopics] = useState([{ topic: "", hours: 0 }]);
   const [tosMatrix, setTosMatrix] = useState<any>(null);
   const [showMatrix, setShowMatrix] = useState(false);
+  const [showCollaboration, setShowCollaboration] = useState(false);
 
   // Generate document ID for collaboration
   const documentId = `tos-builder-${Date.now()}`;
@@ -280,12 +282,33 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
               <Calculator className="h-5 w-5" />
               Table of Specification Builder
             </div>
-            <CollaborationIndicator 
-              users={users}
-              isConnected={isConnected}
-              currentUser={currentUser}
-            />
+            <div className="flex items-center gap-2">
+              <CollaborationIndicator 
+                users={users}
+                isConnected={isConnected}
+                currentUser={currentUser}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCollaboration(!showCollaboration)}
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Share
+              </Button>
+            </div>
           </CardTitle>
+          {showCollaboration && (
+            <div className="mt-4">
+              <CollaborativeDocumentManager
+                documentId={documentId}
+                documentType="tos"
+                documentTitle="Table of Specification"
+                currentUserEmail="teacher@example.com"
+                isOwner={true}
+              />
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
