@@ -14,36 +14,139 @@ export type Database = {
   }
   public: {
     Tables: {
+      generated_tests: {
+        Row: {
+          answer_key: Json
+          created_at: string
+          created_by: string
+          id: string
+          questions: Json
+          test_title: string
+          tos_id: string | null
+          total_points: number
+          total_questions: number
+        }
+        Insert: {
+          answer_key: Json
+          created_at?: string
+          created_by?: string
+          id?: string
+          questions: Json
+          test_title: string
+          tos_id?: string | null
+          total_points: number
+          total_questions: number
+        }
+        Update: {
+          answer_key?: Json
+          created_at?: string
+          created_by?: string
+          id?: string
+          questions?: Json
+          test_title?: string
+          tos_id?: string | null
+          total_points?: number
+          total_questions?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_tests_tos_id_fkey"
+            columns: ["tos_id"]
+            isOneToOne: false
+            referencedRelation: "tos_entries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      learning_competencies: {
+        Row: {
+          analyzing_items: number
+          applying_items: number
+          created_at: string
+          creating_items: number
+          evaluating_items: number
+          hours: number
+          id: string
+          item_numbers: Json
+          percentage: number
+          remembering_items: number
+          topic_name: string
+          tos_id: string | null
+          total_items: number
+          understanding_items: number
+        }
+        Insert: {
+          analyzing_items?: number
+          applying_items?: number
+          created_at?: string
+          creating_items?: number
+          evaluating_items?: number
+          hours: number
+          id?: string
+          item_numbers?: Json
+          percentage: number
+          remembering_items?: number
+          topic_name: string
+          tos_id?: string | null
+          total_items: number
+          understanding_items?: number
+        }
+        Update: {
+          analyzing_items?: number
+          applying_items?: number
+          created_at?: string
+          creating_items?: number
+          evaluating_items?: number
+          hours?: number
+          id?: string
+          item_numbers?: Json
+          percentage?: number
+          remembering_items?: number
+          topic_name?: string
+          tos_id?: string | null
+          total_items?: number
+          understanding_items?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learning_competencies_tos_id_fkey"
+            columns: ["tos_id"]
+            isOneToOne: false
+            referencedRelation: "tos_entries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       question_rubrics: {
         Row: {
-          created_at: string
+          created_at: string | null
           created_by: string
           description: string | null
           id: string
-          question_id: string
+          question_id: string | null
           title: string
           total_points: number
-          updated_at: string
+          updated_at: string | null
         }
         Insert: {
-          created_at?: string
+          created_at?: string | null
           created_by?: string
           description?: string | null
           id?: string
-          question_id: string
+          question_id?: string | null
           title: string
           total_points?: number
-          updated_at?: string
+          updated_at?: string | null
         }
         Update: {
-          created_at?: string
+          created_at?: string | null
           created_by?: string
           description?: string | null
           id?: string
-          question_id?: string
+          question_id?: string | null
           title?: string
           total_points?: number
-          updated_at?: string
+          updated_at?: string | null
         }
         Relationships: [
           {
@@ -52,7 +155,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "questions"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
       questions: {
@@ -120,31 +223,31 @@ export type Database = {
       }
       rubric_criteria: {
         Row: {
-          created_at: string
+          created_at: string | null
           criterion_name: string
           description: string | null
           id: string
           max_points: number
           order_index: number
-          rubric_id: string
+          rubric_id: string | null
         }
         Insert: {
-          created_at?: string
+          created_at?: string | null
           criterion_name: string
           description?: string | null
           id?: string
           max_points: number
           order_index?: number
-          rubric_id: string
+          rubric_id?: string | null
         }
         Update: {
-          created_at?: string
+          created_at?: string | null
           criterion_name?: string
           description?: string | null
           id?: string
           max_points?: number
           order_index?: number
-          rubric_id?: string
+          rubric_id?: string | null
         }
         Relationships: [
           {
@@ -153,35 +256,35 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "question_rubrics"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
       rubric_scores: {
         Row: {
           comments: string | null
-          created_at: string
-          criterion_id: string
+          created_at: string | null
+          criterion_id: string | null
           graded_by: string
           id: string
-          response_id: string
+          response_id: string | null
           score: number
         }
         Insert: {
           comments?: string | null
-          created_at?: string
-          criterion_id: string
+          created_at?: string | null
+          criterion_id?: string | null
           graded_by: string
           id?: string
-          response_id: string
+          response_id?: string | null
           score?: number
         }
         Update: {
           comments?: string | null
-          created_at?: string
-          criterion_id?: string
+          created_at?: string | null
+          criterion_id?: string | null
           graded_by?: string
           id?: string
-          response_id?: string
+          response_id?: string | null
           score?: number
         }
         Relationships: [
@@ -198,7 +301,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "student_responses"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
       rubrics: {
@@ -249,11 +352,11 @@ export type Database = {
           graded_at: string | null
           graded_by: string | null
           id: string
-          question_id: string
+          question_id: string | null
           response_text: string
           student_id: string | null
           student_name: string
-          submitted_at: string
+          submitted_at: string | null
           total_score: number | null
         }
         Insert: {
@@ -261,11 +364,11 @@ export type Database = {
           graded_at?: string | null
           graded_by?: string | null
           id?: string
-          question_id: string
+          question_id?: string | null
           response_text: string
           student_id?: string | null
           student_name: string
-          submitted_at?: string
+          submitted_at?: string | null
           total_score?: number | null
         }
         Update: {
@@ -273,11 +376,11 @@ export type Database = {
           graded_at?: string | null
           graded_by?: string | null
           id?: string
-          question_id?: string
+          question_id?: string | null
           response_text?: string
           student_id?: string | null
           student_name?: string
-          submitted_at?: string
+          submitted_at?: string | null
           total_score?: number | null
         }
         Relationships: [
@@ -287,8 +390,195 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "questions"
             referencedColumns: ["id"]
-          }
+          },
         ]
+      }
+      test_exports: {
+        Row: {
+          export_type: string
+          exported_at: string | null
+          exported_by: string
+          file_name: string
+          id: string
+          test_version_id: string | null
+        }
+        Insert: {
+          export_type: string
+          exported_at?: string | null
+          exported_by: string
+          file_name: string
+          id?: string
+          test_version_id?: string | null
+        }
+        Update: {
+          export_type?: string
+          exported_at?: string | null
+          exported_by?: string
+          file_name?: string
+          id?: string
+          test_version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_exports_test_version_id_fkey"
+            columns: ["test_version_id"]
+            isOneToOne: false
+            referencedRelation: "test_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_metadata: {
+        Row: {
+          course: string | null
+          created_at: string | null
+          created_by: string
+          exam_period: string | null
+          id: string
+          instructions: string
+          number_of_versions: number | null
+          points_per_question: number | null
+          school_year: string | null
+          shuffle_choices: boolean | null
+          shuffle_questions: boolean | null
+          subject: string
+          time_limit: number | null
+          title: string
+          total_questions: number
+          updated_at: string | null
+          year_section: string | null
+        }
+        Insert: {
+          course?: string | null
+          created_at?: string | null
+          created_by?: string
+          exam_period?: string | null
+          id?: string
+          instructions?: string
+          number_of_versions?: number | null
+          points_per_question?: number | null
+          school_year?: string | null
+          shuffle_choices?: boolean | null
+          shuffle_questions?: boolean | null
+          subject: string
+          time_limit?: number | null
+          title: string
+          total_questions: number
+          updated_at?: string | null
+          year_section?: string | null
+        }
+        Update: {
+          course?: string | null
+          created_at?: string | null
+          created_by?: string
+          exam_period?: string | null
+          id?: string
+          instructions?: string
+          number_of_versions?: number | null
+          points_per_question?: number | null
+          school_year?: string | null
+          shuffle_choices?: boolean | null
+          shuffle_questions?: boolean | null
+          subject?: string
+          time_limit?: number | null
+          title?: string
+          total_questions?: number
+          updated_at?: string | null
+          year_section?: string | null
+        }
+        Relationships: []
+      }
+      test_versions: {
+        Row: {
+          answer_key: Json
+          created_at: string | null
+          id: string
+          question_order: number[]
+          questions: Json
+          test_metadata_id: string | null
+          total_points: number
+          version_label: string
+        }
+        Insert: {
+          answer_key: Json
+          created_at?: string | null
+          id?: string
+          question_order: number[]
+          questions: Json
+          test_metadata_id?: string | null
+          total_points: number
+          version_label: string
+        }
+        Update: {
+          answer_key?: Json
+          created_at?: string | null
+          id?: string
+          question_order?: number[]
+          questions?: Json
+          test_metadata_id?: string | null
+          total_points?: number
+          version_label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_versions_test_metadata_id_fkey"
+            columns: ["test_metadata_id"]
+            isOneToOne: false
+            referencedRelation: "test_metadata"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tos_entries: {
+        Row: {
+          course: string
+          created_at: string
+          created_by: string
+          description: string
+          exam_period: string
+          id: string
+          noted_by: string
+          prepared_by: string
+          school_year: string
+          subject_no: string
+          title: string
+          total_items: number
+          updated_at: string
+          year_section: string
+        }
+        Insert: {
+          course: string
+          created_at?: string
+          created_by?: string
+          description: string
+          exam_period: string
+          id?: string
+          noted_by: string
+          prepared_by: string
+          school_year: string
+          subject_no: string
+          title: string
+          total_items: number
+          updated_at?: string
+          year_section: string
+        }
+        Update: {
+          course?: string
+          created_at?: string
+          created_by?: string
+          description?: string
+          exam_period?: string
+          id?: string
+          noted_by?: string
+          prepared_by?: string
+          school_year?: string
+          subject_no?: string
+          title?: string
+          total_items?: number
+          updated_at?: string
+          year_section?: string
+        }
+        Relationships: []
       }
     }
     Views: {

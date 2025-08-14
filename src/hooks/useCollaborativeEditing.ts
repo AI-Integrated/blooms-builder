@@ -19,7 +19,7 @@ interface CollaborativeState {
 
 interface UseCollaborativeEditingProps {
   documentId: string;
-  documentType: 'tos' | 'question' | 'rubric';
+  documentType: 'tos' | 'question' | 'test' | 'rubric';
   initialData?: any;
   onDataChange?: (data: any) => void;
 }

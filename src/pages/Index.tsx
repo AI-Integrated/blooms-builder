@@ -163,7 +163,9 @@ const Index = () => {
       )}
 
       {currentView === 'collaborative-questions' && user.isAuthenticated && (
-        <CollaborativeQuestionBank />
+        <div className="container mx-auto py-8">
+          <CollaborativeQuestionBank />
+        </div>
       )}
 
       {currentView === 'essay-grading' && user.isAuthenticated && (
