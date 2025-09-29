@@ -1,9 +1,9 @@
 import { Layout } from "@/components/layout/Layout";
-import { AnalyticsCharts } from "@/components/AnalyticsCharts";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AIApprovalWorkflow } from "@/components/AIApprovalWorkflow";
+import AnalyticsCharts from "@/components/AnalyticsCharts";
+import EnhancedQuestionBank from "@/components/EnhancedQuestionBank";
 import { CollaborativeDocumentManager } from "@/components/CollaborativeDocumentManager";
-import { MultiVersionTestGenerator } from "@/components/MultiVersionTestGenerator";
+import { TestVersionComparison } from "@/components/TestVersionComparison";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   BarChart3, 
   CheckCircle, 
@@ -47,15 +47,24 @@ export default function Analytics() {
           </TabsContent>
 
           <TabsContent value="approval">
-            <AIApprovalWorkflow />
+            <EnhancedQuestionBank onBack={() => {}} />
           </TabsContent>
 
           <TabsContent value="collaboration">
-            <CollaborativeDocumentManager />
+            <CollaborativeDocumentManager 
+              documentId="analytics-demo"
+              documentType="question"
+              documentTitle="Analytics Dashboard"
+              currentUserEmail="demo@example.com"
+              isOwner={true}
+            />
           </TabsContent>
 
           <TabsContent value="versions">
-            <MultiVersionTestGenerator />
+            <TestVersionComparison 
+              versions={[]}
+              originalQuestions={[]}
+            />
           </TabsContent>
         </Tabs>
       </div>

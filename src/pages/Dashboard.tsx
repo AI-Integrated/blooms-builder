@@ -8,7 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { BookOpen, Brain, FileCheck, LogOut } from "lucide-react";
-import { auth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/ui/use-toast";
 
 const stats = [
@@ -35,9 +35,10 @@ const stats = [
 const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { signOut } = useAuth();
 
-  const handleLogout = () => {
-    auth.logout();
+  const handleLogout = async () => {
+    await signOut();
     toast({
       title: "Logged out",
       description: "You have been successfully logged out.",

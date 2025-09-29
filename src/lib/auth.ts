@@ -1,69 +1,109 @@
+import { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { User, Session } from '@supabase/supabase-js';
 
-interface Admin {
-  email: string;
-  password: string;
+export interface Profile {
+  id: string;
+  full_name: string;
+  role: 'admin' | 'teacher';
+  created_at: string;
 }
 
-interface AuthResponse {
-  success: boolean;
-  message: string;
-  token?: string;
+export interface AuthContextType {
+  user: User | null;
+  session: Session | null;
+  profile: Profile | null;
+  loading: boolean;
+  signUp: (email: string, password: string, fullName: string) => Promise<{ error: any }>;
+  signIn: (email: string, password: string) => Promise<{ error: any }>;
+  signOut: () => Promise<void>;
 }
 
-// Admin credentials as specified
-const ADMIN_CREDENTIALS: Admin[] = [
-  {
-    email: "efraemfllanda@asscat.edu.ph",
-    password: "efraemllanda123",
-  },
-  {
-    email: "cherrylviscaya@asscat.edu.ph",
-    password: "cherryviscaya123",
-  },
-];
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Simple token generation (in a real app, use a proper JWT library)
-const generateToken = (email: string): string => {
-  return btoa(JSON.stringify({ email, timestamp: Date.now() }));
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 };
 
-export const auth = {
-  login: async (email: string, password: string): Promise<AuthResponse> => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+export const useAuthState = () => {
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
 
-    const admin = ADMIN_CREDENTIALS.find(
-      (admin) => admin.email === email && admin.password === password
+  useEffect(() => {
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          // Create a default profile for now
+          setProfile({
+            id: session.user.id,
+            full_name: session.user.user_metadata?.full_name || 'User',
+            role: session.user.email === 'demonstration595@gmail.com' ? 'admin' : 'teacher',
+            created_at: new Date().toISOString()
+          });
+        } else {
+          setProfile(null);
+        }
+        setLoading(false);
+      }
     );
 
-    if (admin) {
-      const token = generateToken(admin.email);
-      // Store the token securely
-      localStorage.setItem("authToken", token);
-      localStorage.setItem("isAuthenticated", "true");
-      return {
-        success: true,
-        message: "Login successful",
-        token,
-      };
-    }
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (!session) {
+        setLoading(false);
+      }
+    });
 
-    return {
-      success: false,
-      message: "Invalid email or password",
-    };
-  },
+    return () => subscription.unsubscribe();
+  }, []);
 
-  logout: () => {
-    localStorage.removeItem("authToken");
-    localStorage.removeItem("isAuthenticated");
-  },
+  const signUp = async (email: string, password: string, fullName: string) => {
+    const redirectUrl = `${window.location.origin}/`;
+    
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: redirectUrl,
+        data: {
+          full_name: fullName
+        }
+      }
+    });
+    return { error };
+  };
 
-  isAuthenticated: (): boolean => {
-    return localStorage.getItem("isAuthenticated") === "true";
-  },
+  const signIn = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+    return { error };
+  };
 
-  getToken: (): string | null => {
-    return localStorage.getItem("authToken");
-  },
+  const signOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  return {
+    user,
+    session,
+    profile,
+    loading,
+    signUp,
+    signIn,
+    signOut
+  };
 };

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
-import { auth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -14,15 +14,16 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { signIn } = useAuth();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
-      const response = await auth.login(email, password);
+      const { error } = await signIn(email, password);
 
-      if (response.success) {
+      if (!error) {
         toast({
           title: "Success",
           description: "Welcome back!",
@@ -31,8 +32,8 @@ export default function Login() {
       } else {
         toast({
           variant: "destructive",
-          title: "Error",
-          description: response.message,
+          title: "Error", 
+          description: error.message,
         });
       }
     } catch (error) {

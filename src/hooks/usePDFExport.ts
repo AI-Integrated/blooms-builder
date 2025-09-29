@@ -1,9 +1,39 @@
 import { useCallback } from 'react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 export const usePDFExport = () => {
-  const exportTOSMatrix = useCallback(async (elementId: string = 'tos-document') => {
+  const uploadToStorage = useCallback(async (blob: Blob, filename: string, folder: string) => {
+    try {
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const path = `${folder}/${timestamp}/${filename}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('exports')
+        .upload(path, blob, {
+          upsert: true,
+          contentType: 'application/pdf'
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('exports')
+        .getPublicUrl(path);
+
+      return {
+        storageUrl: urlData.publicUrl,
+        storagePath: path
+      };
+    } catch (error) {
+      console.error('Storage upload error:', error);
+      throw new Error('Failed to upload PDF to storage');
+    }
+  }, []);
+
+  const exportTOSMatrix = useCallback(async (elementId: string = 'tos-document', uploadToCloud: boolean = false) => {
     try {
       const element = document.getElementById(elementId);
       if (!element) {
@@ -57,16 +87,43 @@ export const usePDFExport = () => {
         }
       }
 
-      // Save the PDF
-      pdf.save('table-of-specifications.pdf');
-      return true;
+      const blob = pdf.output('blob');
+      
+      // Upload to storage if requested
+      if (uploadToCloud) {
+        try {
+          const { storageUrl } = await uploadToStorage(blob, 'table-of-specifications.pdf', 'tos');
+          toast.success(`PDF exported and uploaded successfully!`);
+          
+          // Also download locally
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'table-of-specifications.pdf';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          
+          return { success: true, storageUrl };
+        } catch (error) {
+          toast.error('Failed to upload PDF to cloud storage');
+          // Fallback to local download
+          pdf.save('table-of-specifications.pdf');
+          return { success: true };
+        }
+      } else {
+        // Save locally only
+        pdf.save('table-of-specifications.pdf');
+        return { success: true };
+      }
     } catch (error) {
       console.error('Error exporting TOS as PDF:', error);
       return false;
     }
-  }, []);
+  }, [uploadToStorage]);
 
-  const exportTestQuestions = useCallback(async (questions: any[], testTitle: string) => {
+  const exportTestQuestions = useCallback(async (questions: any[], testTitle: string, uploadToCloud: boolean = false, versionLabel?: string) => {
     try {
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
@@ -154,16 +211,46 @@ export const usePDFExport = () => {
         yPosition += lineHeight;
       });
 
-      pdf.save(`${testTitle.toLowerCase().replace(/\s+/g, '-')}.pdf`);
-      return true;
+      const filename = `${testTitle.toLowerCase().replace(/\s+/g, '-')}${versionLabel ? `-version-${versionLabel}` : ''}.pdf`;
+      const blob = pdf.output('blob');
+      
+      // Upload to storage if requested
+      if (uploadToCloud) {
+        try {
+          const { storageUrl } = await uploadToStorage(blob, filename, 'tests');
+          toast.success(`Test PDF exported and uploaded successfully!`);
+          
+          // Also download locally
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          
+          return { success: true, storageUrl, filename };
+        } catch (error) {
+          toast.error('Failed to upload PDF to cloud storage');
+          // Fallback to local download
+          pdf.save(filename);
+          return { success: true, filename };
+        }
+      } else {
+        // Save locally only
+        pdf.save(filename);
+        return { success: true, filename };
+      }
     } catch (error) {
       console.error('Error exporting test as PDF:', error);
       return false;
     }
-  }, []);
+  }, [uploadToStorage]);
 
   return {
     exportTOSMatrix,
-    exportTestQuestions
+    exportTestQuestions,
+    uploadToStorage
   };
 };
