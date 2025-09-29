@@ -167,18 +167,14 @@ export const Questions = {
 // Tests operations  
 export const Tests = {
   async create(tos_id: string, title: string, params: any) {
-    const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from('generated_tests')
       .insert({ 
-        created_by: user?.id, 
         tos_id, 
-        title,
-        subject: params.subject || 'General',
-        instructions: params.instructions || '',
-        num_versions: params.num_versions || 1,
-        versions: params.versions || [],
-        answer_keys: params.answer_keys || []
+        instructions: title || params.instructions || '',
+        version_label: 'A',
+        items: params.versions?.[0] || [],
+        answer_key: params.answer_keys?.[0] || {}
       })
       .select()
       .single();
@@ -217,11 +213,9 @@ export const Tests = {
   },
 
   async listMine() {
-    const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from('generated_tests')
       .select('*')
-      .eq('created_by', user?.id)
       .order('created_at', { ascending: false });
     
     if (error) throw error;

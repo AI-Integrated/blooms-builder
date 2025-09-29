@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import { EnhancedDashboard } from "./pages/EnhancedDashboard";
 import { QualityDashboard } from "./components/quality/QualityDashboard";
 import PsychometricDashboard from "./components/analytics/PsychometricDashboard";
+import Quality from "./pages/Quality";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -20,6 +21,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/enhanced-dashboard" element={<EnhancedDashboard userRole="teacher" userName="Demo User" />} />
+          <Route path="/quality-framework" element={<Quality />} />
           <Route path="/quality" element={<QualityDashboard />} />
           <Route path="/psychometrics" element={<PsychometricDashboard />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
