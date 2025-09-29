@@ -1,128 +1,242 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
+type TopicDistribution = {
+  topic: string;
+  counts: {
+    remembering: number;
+    understanding: number;
+    applying: number;
+    analyzing: number;
+    evaluating: number;
+    creating: number;
+    difficulty: { easy: number; average: number; difficult: number };
+  };
+};
+
+type GenerationInput = {
+  tos_id: string;
+  total_items: number;
+  distributions: TopicDistribution[];
+  allow_unapproved?: boolean;
+  prefer_existing?: boolean;
+};
+
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+);
+
+async function pickFromBank(
+  topic: string,
+  bloom: string,
+  difficulty: string,
+  needed: number,
+  allowUnapproved = false
+) {
+  let query = supabase
+    .from('questions')
+    .select('*')
+    .eq('topic', topic)
+    .eq('bloom_level', bloom)
+    .eq('difficulty', difficulty)
+    .eq('deleted', false)
+    .order('used_count', { ascending: true })
+    .limit(needed * 2); // Fetch extra for filtering
+
+  if (!allowUnapproved) {
+    query = query.eq('approved', true);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('Error fetching from bank:', error);
+    return [];
+  }
+
+  return (data ?? []).slice(0, needed);
+}
+
+function generateFallbackQuestions(
+  topic: string,
+  bloom: string,
+  difficulty: string,
+  count: number
+): any[] {
+  const verbTemplates: Record<string, string[]> = {
+    remembering: ['Define', 'List', 'Identify', 'Name', 'Recall'],
+    understanding: ['Explain', 'Summarize', 'Describe', 'Interpret', 'Classify'],
+    applying: ['Apply', 'Use', 'Implement', 'Execute', 'Demonstrate'],
+    analyzing: ['Analyze', 'Compare', 'Examine', 'Differentiate', 'Organize'],
+    evaluating: ['Evaluate', 'Assess', 'Judge', 'Critique', 'Justify'],
+    creating: ['Create', 'Design', 'Develop', 'Construct', 'Formulate']
+  };
+
+  const verbs = verbTemplates[bloom] ?? ['Explain'];
+  const questions = [];
+
+  for (let i = 0; i < count; i++) {
+    const verb = verbs[i % verbs.length];
+    const questionText = `${verb} a key concept related to ${topic}.`;
+    
+    // Generate realistic MCQ choices
+    const choices = {
+      A: `A comprehensive approach to ${topic}`,
+      B: `A basic understanding of ${topic}`,
+      C: `An alternative method for ${topic}`,
+      D: `A contrasting view of ${topic}`
+    };
+
+    questions.push({
+      topic,
+      question_text: questionText,
+      question_type: 'mcq',
+      choices,
+      correct_answer: 'A',
+      bloom_level: bloom,
+      difficulty,
+      knowledge_dimension: bloom === 'creating' ? 'procedural' : 
+                          bloom === 'evaluating' ? 'metacognitive' :
+                          bloom === 'applying' ? 'procedural' : 'conceptual',
+      created_by: 'ai',
+      approved: false,
+      ai_confidence_score: 0.6,
+      needs_review: true,
+      metadata: { generated_by: 'fallback_template', template_version: '1.0' }
+    });
+  }
+
+  return questions;
+}
+
 serve(async (req) => {
-  // Handle CORS preflight requests
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { tosMatrix } = await req.json();
+    const body: GenerationInput = await req.json();
     
-    if (!tosMatrix) {
-      throw new Error('TOS matrix is required');
+    if (!body.tos_id || !body.total_items || !body.distributions) {
+      throw new Error('Missing required fields: tos_id, total_items, distributions');
     }
 
-    const { formData, distribution } = tosMatrix;
-    
-    // Create a detailed prompt for question generation
-    const prompt = `Generate test questions based on this Table of Specification:
+    const assembled: any[] = [];
+    const generationLog: any[] = [];
 
-Subject: ${formData.subjectDescription} (${formData.subjectNo})
-Course: ${formData.course}
-Total Items: ${formData.totalItems}
+    for (const dist of body.distributions) {
+      const topic = dist.topic;
+      const bloomLevels: Array<keyof TopicDistribution['counts']> = [
+        'remembering', 'understanding', 'applying', 'analyzing', 'evaluating', 'creating'
+      ];
 
-Topics and Bloom's Level Distribution:
-${Object.entries(distribution).map(([topic, levels]: [string, any]) => `
-Topic: ${topic}
-- Remembering (Easy): ${levels.remembering.length} questions
-- Understanding (Easy): ${levels.understanding.length} questions  
-- Applying (Average): ${levels.applying.length} questions
-- Analyzing (Average): ${levels.analyzing.length} questions
-- Evaluating (Difficult): ${levels.evaluating.length} questions
-- Creating (Difficult): ${levels.creating.length} questions
-`).join('\n')}
+      for (const bloom of bloomLevels) {
+        const count = dist.counts[bloom] as number;
+        if (!count || count <= 0) continue;
 
-Generate EXACTLY ${formData.totalItems} multiple choice questions following these requirements:
+        // Distribute count across difficulty levels based on proportions
+        const { easy, average, difficult } = dist.counts.difficulty;
+        const totalDiff = Math.max(1, easy + average + difficult);
+        
+        const easyCount = Math.round(count * (easy / totalDiff));
+        const averageCount = Math.round(count * (average / totalDiff));
+        const difficultCount = Math.max(0, count - easyCount - averageCount);
 
-1. Each question should have 4 choices (A, B, C, D)
-2. Include the correct answer
-3. Match the specified Bloom's taxonomy level for each topic
-4. Use appropriate difficulty level based on Bloom's level:
-   - Easy: Remembering, Understanding
-   - Average: Applying, Analyzing  
-   - Difficult: Evaluating, Creating
-5. Make questions relevant to ${formData.subjectDescription}
-6. Number questions sequentially from 1 to ${formData.totalItems}
+        const difficulties = [
+          { level: 'easy', count: easyCount },
+          { level: 'average', count: averageCount },
+          { level: 'difficult', count: difficultCount }
+        ];
 
-Return response as a JSON array with this exact structure:
-[
-  {
-    "id": 1,
-    "question_text": "Question text here?",
-    "question_type": "multiple_choice",
-    "choices": ["Choice A", "Choice B", "Choice C", "Choice D"],
-    "correct_answer": "Choice A",
-    "bloom_level": "remembering",
-    "difficulty": "easy",
-    "topic": "Topic name",
-    "knowledge_dimension": "factual"
-  }
-]
+        for (const { level, count: diffCount } of difficulties) {
+          if (diffCount <= 0) continue;
 
-Make sure to distribute questions exactly as specified in the TOS matrix.`;
+          // Try to get from existing question bank first
+          const bankQuestions = await pickFromBank(
+            topic,
+            bloom,
+            level,
+            diffCount,
+            body.allow_unapproved ?? false
+          );
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { 
-            role: 'system', 
-            content: 'You are an expert educational assessment developer. Generate high-quality test questions that align precisely with the given Table of Specification. Always return valid JSON format.' 
-          },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 4000,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const generatedContent = data.choices[0].message.content;
-    
-    // Parse the JSON response
-    let questions;
-    try {
-      questions = JSON.parse(generatedContent);
-    } catch (parseError) {
-      // If JSON parsing fails, try to extract JSON from the response
-      const jsonMatch = generatedContent.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        questions = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('Failed to parse generated questions as JSON');
+          const shortage = Math.max(0, diffCount - bankQuestions.length);
+          
+          // Add bank questions
+          assembled.push(...bankQuestions);
+          
+          // Generate fallback questions for shortage
+          if (shortage > 0) {
+            const fallbackQuestions = generateFallbackQuestions(topic, bloom, level, shortage);
+            assembled.push(...fallbackQuestions);
+            
+            generationLog.push({
+              topic,
+              bloom,
+              difficulty: level,
+              requested: diffCount,
+              from_bank: bankQuestions.length,
+              generated: shortage,
+              reason: 'insufficient_bank_questions'
+            });
+          } else {
+            generationLog.push({
+              topic,
+              bloom,
+              difficulty: level,
+              requested: diffCount,
+              from_bank: bankQuestions.length,
+              generated: 0,
+              reason: 'sufficient_bank_questions'
+            });
+          }
+        }
       }
     }
 
-    return new Response(JSON.stringify({ 
-      questions,
-      tosMatrix: tosMatrix,
-      generatedAt: new Date().toISOString()
+    // Trim to exact total if we have excess
+    const finalQuestions = assembled.slice(0, body.total_items);
+    
+    // Calculate statistics
+    const stats = {
+      total_generated: finalQuestions.length,
+      from_bank: finalQuestions.filter(q => q.created_by !== 'ai').length,
+      ai_generated: finalQuestions.filter(q => q.created_by === 'ai').length,
+      by_bloom: finalQuestions.reduce((acc: Record<string, number>, q) => {
+        acc[q.bloom_level] = (acc[q.bloom_level] || 0) + 1;
+        return acc;
+      }, {}),
+      by_difficulty: finalQuestions.reduce((acc: Record<string, number>, q) => {
+        acc[q.difficulty] = (acc[q.difficulty] || 0) + 1;
+        return acc;
+      }, {}),
+      needs_review: finalQuestions.filter(q => q.needs_review).length
+    };
+
+    return new Response(JSON.stringify({
+      questions: finalQuestions,
+      generation_log: generationLog,
+      statistics: stats,
+      tos_id: body.tos_id
     }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
+
   } catch (error) {
-    console.error('Error in generate-questions-from-tos function:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('Generation error:', error);
+    return new Response(
+      JSON.stringify({ error: `Question generation failed: ${error.message}` }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      }
+    );
   }
 });

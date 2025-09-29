@@ -1,244 +1,290 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
-interface Question {
-  topic: string;
-  question_text: string;
-  choices?: Record<string, string>;
-  correct_answer?: string;
-}
+type ClassificationInput = {
+  text: string;
+  type: 'mcq' | 'true_false' | 'essay' | 'short_answer';
+  topic?: string;
+};
 
-interface ClassificationResult {
-  bloom_level: string;
-  difficulty: string;
-  knowledge_dimension: string;
-  question_type: string;
-  ai_confidence_score: number;
+type ClassificationOutput = {
+  bloom_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating';
+  difficulty: 'easy' | 'average' | 'difficult';
+  knowledge_dimension: 'factual' | 'conceptual' | 'procedural' | 'metacognitive';
+  confidence: number;           // 0..1
+  quality_score: number;       // 0..1
+  readability_score: number;   // Grade level
+  semantic_vector: number[];   // Embedding vector
   needs_review: boolean;
+};
+
+// Enhanced verb mapping for Bloom's taxonomy
+const BLOOM_VERB_MAP: Record<string, ClassificationOutput['bloom_level']> = {
+  // Remembering
+  'define': 'remembering', 'list': 'remembering', 'recall': 'remembering', 'identify': 'remembering',
+  'name': 'remembering', 'state': 'remembering', 'recognize': 'remembering', 'select': 'remembering',
+  'match': 'remembering', 'choose': 'remembering', 'label': 'remembering', 'locate': 'remembering',
+  
+  // Understanding
+  'explain': 'understanding', 'describe': 'understanding', 'summarize': 'understanding', 
+  'interpret': 'understanding', 'classify': 'understanding', 'compare': 'understanding',
+  'contrast': 'understanding', 'illustrate': 'understanding', 'translate': 'understanding',
+  'paraphrase': 'understanding', 'convert': 'understanding', 'discuss': 'understanding',
+  
+  // Applying
+  'apply': 'applying', 'use': 'applying', 'execute': 'applying', 'implement': 'applying',
+  'solve': 'applying', 'demonstrate': 'applying', 'operate': 'applying', 'calculate': 'applying',
+  'show': 'applying', 'complete': 'applying', 'modify': 'applying', 'relate': 'applying',
+  
+  // Analyzing
+  'analyze': 'analyzing', 'examine': 'analyzing', 'investigate': 'analyzing', 
+  'categorize': 'analyzing', 'differentiate': 'analyzing', 'distinguish': 'analyzing',
+  'organize': 'analyzing', 'deconstruct': 'analyzing', 'breakdown': 'analyzing',
+  'separate': 'analyzing', 'order': 'analyzing', 'connect': 'analyzing',
+  
+  // Evaluating
+  'evaluate': 'evaluating', 'assess': 'evaluating', 'judge': 'evaluating', 
+  'critique': 'evaluating', 'justify': 'evaluating', 'defend': 'evaluating',
+  'support': 'evaluating', 'argue': 'evaluating', 'decide': 'evaluating',
+  'rate': 'evaluating', 'prioritize': 'evaluating', 'recommend': 'evaluating',
+  
+  // Creating
+  'create': 'creating', 'design': 'creating', 'develop': 'creating', 
+  'construct': 'creating', 'generate': 'creating', 'produce': 'creating',
+  'plan': 'creating', 'compose': 'creating', 'formulate': 'creating',
+  'build': 'creating', 'invent': 'creating', 'combine': 'creating'
+};
+
+// Knowledge dimension mapping
+const KNOWLEDGE_DIMENSION_MAP: Record<string, ClassificationOutput['knowledge_dimension']> = {
+  // Factual
+  'define': 'factual', 'list': 'factual', 'name': 'factual', 'identify': 'factual',
+  'recall': 'factual', 'recognize': 'factual', 'select': 'factual', 'match': 'factual',
+  
+  // Conceptual
+  'explain': 'conceptual', 'classify': 'conceptual', 'compare': 'conceptual',
+  'summarize': 'conceptual', 'interpret': 'conceptual', 'illustrate': 'conceptual',
+  'contrast': 'conceptual', 'discuss': 'conceptual',
+  
+  // Procedural
+  'apply': 'procedural', 'use': 'procedural', 'implement': 'procedural',
+  'execute': 'procedural', 'demonstrate': 'procedural', 'calculate': 'procedural',
+  'solve': 'procedural', 'operate': 'procedural', 'construct': 'procedural',
+  
+  // Metacognitive
+  'evaluate': 'metacognitive', 'assess': 'metacognitive', 'judge': 'metacognitive',
+  'critique': 'metacognitive', 'justify': 'metacognitive', 'reflect': 'metacognitive',
+  'plan': 'metacognitive', 'monitor': 'metacognitive'
+};
+
+// Context-based indicators for knowledge dimensions
+const KNOWLEDGE_INDICATORS = {
+  factual: ['what is', 'define', 'list', 'name', 'identify', 'when', 'where', 'who', 'which', 'what year', 'how many'],
+  conceptual: ['explain', 'compare', 'contrast', 'relationship', 'why', 'how does', 'principle', 'theory', 'model', 'framework'],
+  procedural: ['calculate', 'solve', 'demonstrate', 'perform', 'how to', 'steps', 'procedure', 'method', 'algorithm'],
+  metacognitive: ['evaluate', 'assess', 'best method', 'most appropriate', 'strategy', 'approach', 'reflect', 'monitor']
+};
+
+function guessBloomAndKD(text: string, type: ClassificationInput['type']): Pick<ClassificationOutput, 'bloom_level' | 'knowledge_dimension' | 'confidence'> {
+  const t = text.toLowerCase();
+  let bestBloom: ClassificationOutput['bloom_level'] = 'understanding';
+  let bestKD: ClassificationOutput['knowledge_dimension'] = 'conceptual';
+  let verbHits = 0;
+  let kdHits = 0;
+
+  // Check for explicit verb indicators
+  for (const [verb, bloom] of Object.entries(BLOOM_VERB_MAP)) {
+    if (t.includes(` ${verb} `) || t.startsWith(verb) || t.includes(`${verb}:`)) {
+      bestBloom = bloom;
+      verbHits++;
+      break;
+    }
+  }
+
+  // Check for knowledge dimension verbs
+  for (const [verb, kd] of Object.entries(KNOWLEDGE_DIMENSION_MAP)) {
+    if (t.includes(` ${verb} `) || t.startsWith(verb)) {
+      bestKD = kd;
+      kdHits++;
+      break;
+    }
+  }
+
+  // Check for context indicators if no direct verb match
+  if (verbHits === 0) {
+    for (const [kd, indicators] of Object.entries(KNOWLEDGE_INDICATORS)) {
+      if (indicators.some(indicator => t.includes(indicator))) {
+        bestKD = kd as ClassificationOutput['knowledge_dimension'];
+        kdHits++;
+        break;
+      }
+    }
+  }
+
+  // Question type influences knowledge dimension
+  if (type === 'essay' && bestKD === 'factual') {
+    bestKD = 'conceptual'; // Essays are rarely purely factual
+  }
+
+  // Calculate confidence based on hits and question characteristics
+  let confidence = 0.5; // base confidence
+  confidence += verbHits * 0.2; // boost for verb matches
+  confidence += kdHits * 0.1; // boost for KD matches
+  
+  // Adjust for question length and complexity
+  const wordCount = t.split(/\s+/).length;
+  if (wordCount < 8) confidence -= 0.1; // very short questions are harder to classify
+  if (wordCount > 25) confidence += 0.1; // longer questions often have clearer indicators
+  
+  // Type-specific adjustments
+  if (type === 'mcq' && t.includes('which of the following')) confidence += 0.1;
+  if (type === 'essay' && bestBloom === 'creating') confidence += 0.1;
+
+  return {
+    bloom_level: bestBloom,
+    knowledge_dimension: bestKD,
+    confidence: Math.min(1, Math.max(0.1, confidence))
+  };
 }
 
-function analyzeQuestionForKnowledgeDimension(questionText: string, topic: string, choices?: Record<string, string>): string {
-  const text = questionText.toLowerCase();
-  const hints: string[] = [];
+function guessDifficulty(text: string, type: ClassificationInput['type'], bloom: ClassificationOutput['bloom_level']): ClassificationOutput['difficulty'] {
+  const t = text.toLowerCase();
   
-  // Factual indicators
-  const factualKeywords = ['what is', 'define', 'list', 'name', 'identify', 'when', 'where', 'who', 'what year', 'how many', 'which of the following is'];
-  const hasFactualKeywords = factualKeywords.some(keyword => text.includes(keyword));
+  // Explicit difficulty indicators
+  const easyIndicators = ['simple', 'basic', 'elementary', 'straightforward', 'fundamental'];
+  const difficultIndicators = ['complex', 'advanced', 'sophisticated', 'intricate', 'comprehensive'];
   
-  // Conceptual indicators
-  const conceptualKeywords = ['explain', 'compare', 'contrast', 'relationship', 'why', 'how does', 'categorize', 'classify', 'principle', 'theory', 'model'];
-  const hasConceptualKeywords = conceptualKeywords.some(keyword => text.includes(keyword));
+  if (easyIndicators.some(word => t.includes(word))) return 'easy';
+  if (difficultIndicators.some(word => t.includes(word))) return 'difficult';
   
-  // Procedural indicators
-  const proceduralKeywords = ['calculate', 'solve', 'demonstrate', 'perform', 'how to', 'steps', 'procedure', 'method', 'algorithm', 'technique'];
-  const hasProceduralKeywords = proceduralKeywords.some(keyword => text.includes(keyword));
+  // Length-based heuristics
+  const wordCount = t.split(/\s+/).length;
+  const complexityScore = (t.match(/[,:;()-]/g)?.length ?? 0);
   
-  // Metacognitive indicators
-  const metacognitiveKeywords = ['evaluate', 'assess', 'best method', 'most appropriate', 'strategy', 'approach', 'reflect', 'judge', 'critique'];
-  const hasMetacognitiveKeywords = metacognitiveKeywords.some(keyword => text.includes(keyword));
+  if (type === 'essay' || complexityScore > 6 || wordCount > 30) return 'difficult';
+  if (wordCount > 15 || complexityScore > 3) return 'average';
   
-  // Analyze question structure
-  if (hasFactualKeywords) {
-    hints.push('Strong factual indicators detected (definitions, facts, identification)');
+  // Bloom-based inference
+  if (bloom === 'remembering' || bloom === 'understanding') return 'easy';
+  if (bloom === 'evaluating' || bloom === 'creating') return 'difficult';
+  
+  return 'average'; // default
+}
+
+function calculateQualityScore(text: string, type: string): number {
+  let score = 1.0;
+  
+  // Length appropriateness
+  const wordCount = text.split(/\s+/).length;
+  if (wordCount < 5) score -= 0.3;
+  if (wordCount > 50) score -= 0.2;
+  
+  // Grammar and structure
+  if (!/[.?!]$/.test(text.trim())) score -= 0.1;
+  if (text.includes('  ')) score -= 0.05; // Double spaces
+  
+  // Question clarity
+  if (type === 'mcq' && !text.includes('?') && !text.toLowerCase().includes('which')) {
+    score -= 0.1;
   }
   
-  if (hasConceptualKeywords) {
-    hints.push('Conceptual indicators found (explanations, relationships, principles)');
+  return Math.max(0, Math.min(1, score));
+}
+
+function calculateReadabilityScore(text: string): number {
+  const words = text.split(/\s+/).length;
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim()).length;
+  const syllables = estimateSyllables(text);
+  
+  // Flesch-Kincaid Grade Level
+  if (sentences === 0) return 8.0;
+  return 0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
+}
+
+function estimateSyllables(text: string): number {
+  return text.toLowerCase()
+    .replace(/[^a-z]/g, '')
+    .replace(/[aeiou]{2,}/g, 'a')
+    .replace(/[^aeiou]/g, '')
+    .length || 1;
+}
+
+function generateSemanticVector(text: string): number[] {
+  // Simplified semantic vector (in production, use actual embeddings)
+  const words = text.toLowerCase().split(/\s+/);
+  const vector = new Array(50).fill(0);
+  
+  words.forEach((word, index) => {
+    const hash = simpleHash(word);
+    vector[hash % 50] += 1;
+  });
+  
+  // Normalize
+  const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+  return magnitude > 0 ? vector.map(val => val / magnitude) : vector;
+}
+
+function simpleHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
   }
-  
-  if (hasProceduralKeywords) {
-    hints.push('Procedural indicators detected (calculations, methods, processes)');
-  }
-  
-  if (hasMetacognitiveKeywords) {
-    hints.push('Metacognitive indicators found (evaluation, strategy selection)');
-  }
-  
-  // Analyze choices for additional context
-  if (choices) {
-    const choicesText = Object.values(choices).join(' ').toLowerCase();
-    if (choicesText.includes('all of the above') || choicesText.includes('none of the above')) {
-      hints.push('Multiple choice structure suggests factual recall');
-    }
-    
-    const hasNumericChoices = Object.values(choices).some(choice => /\d+/.test(choice));
-    if (hasNumericChoices) {
-      hints.push('Numeric choices suggest procedural knowledge (calculations)');
-    }
-  }
-  
-  // Topic-based hints
-  const mathTopics = ['mathematics', 'algebra', 'calculus', 'geometry', 'statistics'];
-  const scienceTopics = ['physics', 'chemistry', 'biology', 'science'];
-  
-  if (mathTopics.some(mathTopic => topic.toLowerCase().includes(mathTopic))) {
-    if (text.includes('formula') || text.includes('equation')) {
-      hints.push('Mathematical formula context suggests procedural knowledge');
-    }
-  }
-  
-  if (scienceTopics.some(sciTopic => topic.toLowerCase().includes(sciTopic))) {
-    if (text.includes('experiment') || text.includes('hypothesis')) {
-      hints.push('Scientific method context suggests conceptual/procedural knowledge');
-    }
-  }
-  
-  return hints.length > 0 ? hints.join('; ') : 'No clear knowledge dimension indicators detected';
+  return Math.abs(hash);
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { questions }: { questions: Question[] } = await req.json();
+    const payload: ClassificationInput[] = await req.json();
     
-    console.log(`Processing ${questions.length} questions for classification`);
-    
-    const results: (Question & ClassificationResult)[] = [];
-    
-    for (const question of questions) {
-      try {
-        // Determine question type based on structure
-        let questionType = 'essay';
-        if (question.choices && Object.keys(question.choices).length > 0) {
-          questionType = 'mcq';
-        } else if (question.question_text.toLowerCase().includes('true or false') || 
-                   question.question_text.toLowerCase().includes('t/f') ||
-                   question.correct_answer?.toLowerCase() === 'true' ||
-                   question.correct_answer?.toLowerCase() === 'false') {
-          questionType = 'true_false';
-        }
-
-        // Enhanced knowledge dimension detection with pre-analysis
-        const knowledgeDimensionHints = analyzeQuestionForKnowledgeDimension(question.question_text, question.topic, question.choices);
-
-        const prompt = `Classify the following educational question based on Bloom's Taxonomy, Difficulty, and Knowledge Dimension.
-
-Question: "${question.question_text}"
-Topic: "${question.topic}"
-${question.choices ? `Choices: ${JSON.stringify(question.choices)}` : ''}
-${question.correct_answer ? `Correct Answer: ${question.correct_answer}` : ''}
-
-KNOWLEDGE DIMENSION ANALYSIS GUIDELINES:
-- FACTUAL: Basic facts, terminology, details, elements (Who? What? When? Where?)
-  * Key indicators: dates, names, definitions, lists, specific facts
-  * Examples: "What year...", "Define...", "List the...", "Name the..."
-
-- CONCEPTUAL: Relationships, principles, theories, models, structures (How? Why?)
-  * Key indicators: relationships, classifications, principles, generalizations
-  * Examples: "Explain how...", "Compare and contrast...", "Categorize...", "What is the relationship..."
-
-- PROCEDURAL: Skills, algorithms, techniques, methods (How to do?)
-  * Key indicators: step-by-step processes, methods, techniques, procedures
-  * Examples: "How do you...", "What steps...", "Demonstrate...", "Calculate..."
-
-- METACOGNITIVE: Self-awareness, strategic knowledge, cognitive tasks (When? Why use this?)
-  * Key indicators: self-reflection, strategy selection, problem-solving approaches
-  * Examples: "Which method is best...", "Evaluate your approach...", "Reflect on..."
-
-Pre-analysis hints: ${knowledgeDimensionHints}
-
-Classify and return ONLY a JSON object with these exact fields:
-{
-  "bloom_level": "one of: remembering, understanding, applying, analyzing, evaluating, creating",
-  "difficulty": "one of: easy, average, difficult", 
-  "knowledge_dimension": "one of: factual, conceptual, procedural, metacognitive",
-  "confidence": "float between 0.1 and 1.0"
-}
-
-Consider:
-- Bloom's Level: What cognitive process is required?
-- Difficulty: How challenging is this for the target audience?
-- Knowledge Dimension: Use the guidelines above and pre-analysis hints
-- Confidence: How certain are you about these classifications?`;
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openAIApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              { 
-                role: 'system', 
-                content: 'You are an educational assessment expert. Respond only with valid JSON containing the requested classification fields.' 
-              },
-              { role: 'user', content: prompt }
-            ],
-            temperature: 0.3,
-            max_tokens: 200,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`OpenAI API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        const aiResponse = data.choices[0].message.content.trim();
-        
-        // Parse AI response
-        const classification = JSON.parse(aiResponse);
-        
-        const result: Question & ClassificationResult = {
-          ...question,
-          bloom_level: classification.bloom_level,
-          difficulty: classification.difficulty,
-          knowledge_dimension: classification.knowledge_dimension,
-          question_type: questionType,
-          ai_confidence_score: classification.confidence,
-          needs_review: classification.confidence < 0.7
-        };
-        
-        results.push(result);
-        console.log(`Classified question: ${question.question_text.substring(0, 50)}...`);
-        
-      } catch (error) {
-        console.error(`Error classifying question: ${question.question_text}`, error);
-        
-        // Fallback classification for failed questions
-        const fallbackResult: Question & ClassificationResult = {
-          ...question,
-          bloom_level: 'understanding',
-          difficulty: 'average',
-          knowledge_dimension: 'factual',
-          question_type: question.choices ? 'mcq' : 'essay',
-          ai_confidence_score: 0.1,
-          needs_review: true
-        };
-        
-        results.push(fallbackResult);
-      }
+    if (!Array.isArray(payload)) {
+      throw new Error('Expected array of classification inputs');
     }
 
-    return new Response(JSON.stringify({ 
-      success: true, 
-      classified_questions: results,
-      total_processed: results.length
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    const results: ClassificationOutput[] = payload.map(({ text, type, topic }) => {
+      const { bloom_level, knowledge_dimension, confidence } = guessBloomAndKD(text, type);
+      const difficulty = guessDifficulty(text, type, bloom_level);
+      const quality_score = calculateQualityScore(text, type);
+      const readability_score = calculateReadabilityScore(text);
+      const semantic_vector = generateSemanticVector(text);
+      const needs_review = confidence < 0.7; // Flag for manual review if confidence is low
+
+      return {
+        bloom_level,
+        difficulty,
+        knowledge_dimension,
+        confidence: Math.round(confidence * 100) / 100, // Round to 2 decimal places
+        quality_score: Math.round(quality_score * 100) / 100,
+        readability_score: Math.round(readability_score * 10) / 10,
+        semantic_vector,
+        needs_review
+      };
+    });
+
+    return new Response(JSON.stringify(results), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
 
   } catch (error) {
-    console.error('Error in classify-questions function:', error);
-    return new Response(JSON.stringify({ 
-      error: 'Classification failed', 
-      details: error.message 
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('Classification error:', error);
+    return new Response(
+      JSON.stringify({ error: `Classification failed: ${error.message}` }), 
+      { 
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      }
+    );
   }
 });
