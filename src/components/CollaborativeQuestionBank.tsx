@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Plus, Edit2, Trash2, Save, X } from 'lucide-react';
 import { useCollaborativeEditing } from '@/hooks/useCollaborativeEditing';
 import { CollaborationIndicator } from './CollaborationIndicator';
+import { useRealtime } from '@/hooks/useRealtime';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -28,6 +29,7 @@ export const CollaborativeQuestionBank: React.FC = () => {
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [lastSync, setLastSync] = useState<string>('');
 
   const documentId = 'question-bank-shared';
   
@@ -44,6 +46,27 @@ export const CollaborativeQuestionBank: React.FC = () => {
       if (data.questions) {
         setQuestions(data.questions);
       }
+    }
+  });
+
+  // Enhanced real-time updates with better UX
+  useRealtime('collaborative-questions', {
+    table: 'questions',
+    onInsert: (newQuestion) => {
+      if (newQuestion.created_by !== currentUser?.email) {
+        toast.info(`${newQuestion.created_by} added a new question`);
+        loadQuestions();
+      }
+    },
+    onUpdate: (updatedQuestion) => {
+      if (editingQuestion?.id !== updatedQuestion.id) {
+        toast.info(`Question "${updatedQuestion.question_text.substring(0, 30)}..." was updated`);
+        loadQuestions();
+      }
+    },
+    onDelete: (deletedQuestion) => {
+      toast.info(`A question was deleted by a collaborator`);
+      loadQuestions();
     }
   });
 

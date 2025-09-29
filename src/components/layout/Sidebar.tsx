@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { 
   LayoutDashboard, 
-  FileText, 
+  File, 
   HelpCircle, 
   ClipboardList, 
   BarChart3,
@@ -26,7 +26,7 @@ const menuItems = [
   { 
     title: "Table of Specifications", 
     href: "/tos", 
-    icon: FileText,
+    icon: File,
     description: "Create test blueprints" 
   },
   { 

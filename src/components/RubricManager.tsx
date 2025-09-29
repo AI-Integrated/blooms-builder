@@ -20,13 +20,16 @@ import {
   Target
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { ActivityLog } from "@/services/db";
+import { Rubrics } from "@/services/db/rubrics";
 import { RubricPrintout } from "./RubricPrintout";
 
 interface Criterion {
   name: string;
   description: string;
   points: number;
+  weight?: number;
+  max_score?: number;
 }
 
 interface PerformanceLevel {
@@ -86,16 +89,20 @@ export const RubricManager = ({ onBack }: RubricManagerProps) => {
   const fetchRubrics = async () => {
     setLoading(true);
     try {
-      const { data, error } = await (supabase as any)
-        .from('rubrics')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
-      setRubrics(data || []);
+      const data = await Rubrics.list();
+      // Map database response to expected interface
+      const mappedRubrics = data.map(rubric => ({
+        id: rubric.id,
+        title: rubric.name,
+        subject: 'General', // Default since not in DB
+        description: '', // Default since not in DB
+        total_points: rubric.total_max,
+        criteria: Array.isArray(rubric.criteria) ? rubric.criteria as any[] : [],
+        performance_levels: [], // Default since not in DB
+        created_by: rubric.created_by,
+        created_at: rubric.created_at
+      }));
+      setRubrics(mappedRubrics);
     } catch (error) {
       console.error('Error fetching rubrics:', error);
       toast({
@@ -119,32 +126,20 @@ export const RubricManager = ({ onBack }: RubricManagerProps) => {
         return;
       }
 
-      const rubricData = {
+      const rubric = await Rubrics.create({
         title: formData.title,
         description: formData.description,
-        subject: formData.subject,
-        grade_level: formData.grade_level,
-        total_points: formData.total_points,
-        criteria: formData.criteria,
-        performance_levels: formData.performance_levels,
-        created_by: 'teacher'
-      };
-
-      let result;
-      if (editingRubric) {
-        result = await (supabase as any)
-          .from('rubrics')
-          .update(rubricData)
-          .eq('id', editingRubric.id);
-      } else {
-        result = await (supabase as any)
-          .from('rubrics')
-          .insert([rubricData]);
-      }
-
-      if (result.error) {
-        throw result.error;
-      }
+        criteria: formData.criteria.map(c => ({
+          name: c.name,
+          weight: c.weight || 1.0,
+          max_score: c.max_score || c.points || 5
+        }))
+      });
+      
+      await ActivityLog.log(
+        editingRubric ? 'update_rubric' : 'create_rubric',
+        'rubric'
+      );
 
       toast({
         title: "Success",
@@ -167,14 +162,10 @@ export const RubricManager = ({ onBack }: RubricManagerProps) => {
 
   const handleDeleteRubric = async (rubricId: string) => {
     try {
-      const { error } = await (supabase as any)
-        .from('rubrics')
-        .delete()
-        .eq('id', rubricId);
-
-      if (error) {
-        throw error;
-      }
+      await Rubrics.delete(rubricId);
+      
+      // Log activity
+      await ActivityLog.log('delete_rubric', 'rubric');
 
       toast({
         title: "Success",

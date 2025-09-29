@@ -1,5 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { GraduationCap, Menu, User } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { useRealtime } from "@/hooks/useRealtime";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 interface HeaderProps {
   isAuthenticated?: boolean;
@@ -18,6 +22,44 @@ export const Header = ({
   onLogout,
   onNavigate
 }: HeaderProps) => {
+  const [pendingReviews, setPendingReviews] = useState(0);
+  const [systemStatus, setSystemStatus] = useState<'online' | 'offline'>('online');
+
+  // Real-time monitoring for admin notifications
+  useRealtime('header-notifications', {
+    table: 'questions',
+    filter: 'needs_review=eq.true',
+    onInsert: () => {
+      setPendingReviews(prev => prev + 1);
+    },
+    onUpdate: (question) => {
+      if (!question.needs_review) {
+        setPendingReviews(prev => Math.max(0, prev - 1));
+      }
+    }
+  });
+
+  // Load initial pending count
+  useEffect(() => {
+    if (isAuthenticated && userRole === 'admin') {
+      loadPendingCount();
+    }
+  }, [isAuthenticated, userRole]);
+
+  const loadPendingCount = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('questions')
+        .select('id')
+        .eq('needs_review', true);
+      
+      if (error) throw error;
+      setPendingReviews(data?.length || 0);
+    } catch (error) {
+      console.error('Error loading pending count:', error);
+    }
+  };
+
   return (
     <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
@@ -63,9 +105,17 @@ export const Header = ({
                 {userRole === 'admin' && (
                   <button 
                     onClick={() => onNavigate?.('Admin Panel')} 
-                    className="text-foreground/80 hover:text-foreground transition-smooth"
+                    className="text-foreground/80 hover:text-foreground transition-smooth relative"
                   >
                     Admin Panel
+                    {pendingReviews > 0 && (
+                      <Badge 
+                        variant="destructive" 
+                        className="absolute -top-2 -right-2 h-5 w-5 p-0 text-xs flex items-center justify-center"
+                      >
+                        {pendingReviews}
+                      </Badge>
+                    )}
                   </button>
                 )}
               </>
@@ -82,6 +132,10 @@ export const Header = ({
                   <span className="text-xs px-2 py-0.5 rounded-full bg-primary text-primary-foreground">
                     {userRole}
                   </span>
+                  <div className="flex items-center gap-1">
+                    <div className={`w-2 h-2 rounded-full ${systemStatus === 'online' ? 'bg-green-500' : 'bg-red-500'}`} />
+                    <span className="text-xs text-muted-foreground">{systemStatus}</span>
+                  </div>
                 </div>
                 <Button variant="outline" size="sm" onClick={onLogout}>
                   Logout

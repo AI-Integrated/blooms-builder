@@ -1,247 +1,579 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { 
-  PieChart, 
-  Pie, 
-  Cell, 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+} from "@/components/ui/chart";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  LineChart,
+  Line,
+  ResponsiveContainer,
 } from "recharts";
 import { 
-  Brain, 
   BarChart3, 
-  BookOpen, 
+  PieChart as PieIcon, 
+  TrendingUp, 
+  Brain, 
+  CheckCircle, 
+  Clock, 
   Target,
-  CheckCircle,
-  Clock
+  Activity
 } from "lucide-react";
+import { Analytics } from "@/services/db/analytics";
 
-interface AnalyticsData {
-  bloomDistribution: Array<{ name: string; value: number; color: string }>;
-  difficultyDistribution: Array<{ name: string; value: number; color: string }>;
-  topicDistribution: Array<{ topic: string; count: number }>;
-}
-
-const COLORS = {
-  bloom: ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#e74c3c', '#9b59b6'],
-  difficulty: ['#2ecc71', '#f39c12', '#e74c3c']
+const BLOOM_COLORS = {
+  "Remembering": "hsl(var(--primary))",
+  "remembering": "hsl(var(--primary))",
+  "Understanding": "hsl(var(--secondary))", 
+  "understanding": "hsl(var(--secondary))", 
+  "Applying": "hsl(var(--accent))",
+  "applying": "hsl(var(--accent))",
+  "Analyzing": "hsl(var(--primary-glow))",
+  "analyzing": "hsl(var(--primary-glow))",
+  "Evaluating": "hsl(var(--muted))",
+  "evaluating": "hsl(var(--muted))",
+  "Creating": "hsl(var(--destructive))",
+  "creating": "hsl(var(--destructive))",
+  "Unknown": "hsl(var(--muted-foreground))"
 };
 
-export function AnalyticsCharts() {
-  const [data, setData] = useState<AnalyticsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
+const CREATOR_COLORS = {
+  "AI Generated": "hsl(var(--primary))",
+  "Teacher Created": "hsl(var(--secondary))"
+};
+
+const DIFFICULTY_COLORS = {
+  "Easy": "hsl(var(--secondary))",
+  "easy": "hsl(var(--secondary))",
+  "Average": "hsl(var(--primary))",
+  "average": "hsl(var(--primary))",
+  "Difficult": "hsl(var(--destructive))",
+  "difficult": "hsl(var(--destructive))",
+  "Unknown": "hsl(var(--muted-foreground))"
+};
+
+const APPROVAL_COLORS = {
+  "Approved": "hsl(var(--secondary))",
+  "Pending Review": "hsl(var(--primary))"
+};
+
+const USAGE_COLORS = {
+  "Used in Tests": "hsl(var(--primary))",
+  "Unused": "hsl(var(--muted))"
+};
+
+export const AnalyticsCharts = () => {
+  const [analytics, setAnalytics] = useState<{
+    bloomDistribution: Array<{name: string; value: number; percentage: number}>;
+    creatorStats: Array<{name: string; value: number}>;
+    timeSeriesData: Array<{date: string; count: number}>;
+    difficultySpread: Array<{name: string; value: number; percentage: number}>;
+    usageStats: Array<{name: string; value: number; percentage: number}>;
+    approvalStats: Array<{name: string; value: number}>;
+    topicAnalysis: Array<{topic: string; questionCount: number; approvalRate: number}>;
+    totalQuestions: number;
+    aiQuestions: number;
+    teacherQuestions: number;
+    approvedQuestions: number;
+    pendingApproval: number;
+    loading: boolean;
+  }>({
+    bloomDistribution: [],
+    creatorStats: [],
+    timeSeriesData: [],
+    difficultySpread: [],
+    usageStats: [],
+    approvalStats: [],
+    topicAnalysis: [],
     totalQuestions: 0,
+    aiQuestions: 0,
+    teacherQuestions: 0,
     approvedQuestions: 0,
-    totalTests: 0,
-    avgConfidence: 0
+    pendingApproval: 0,
+    loading: true,
   });
 
   useEffect(() => {
-    fetchAnalyticsData();
+    loadAnalytics();
+    
+    // Set up real-time subscription
+    const channel = supabase
+      .channel('analytics-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'questions'
+        },
+        () => {
+          loadAnalytics();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'activity_log'
+        },
+        () => {
+          loadAnalytics();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  const fetchAnalyticsData = async () => {
+  const loadAnalytics = async () => {
     try {
-      const { data: questions, error: questionsError } = await supabase
-        .from('questions')
-        .select('*');
+      const [
+        bloomData,
+        difficultyData,
+        creatorData,
+        usageData,
+        approvalData,
+        topicData
+      ] = await Promise.all([
+        Analytics.bloomDistribution(),
+        Analytics.difficultySpread(),
+        Analytics.creatorStats(),
+        Analytics.usageOverTime(),
+        Analytics.approvalStats(),
+        Analytics.topicAnalysis()
+      ]);
 
-      if (questionsError) throw questionsError;
+      const totalQuestions = bloomData.reduce((sum, item) => sum + item.value, 0);
+      const aiQuestions = creatorData.find(item => item.name === 'AI Generated')?.value || 0;
+      const teacherQuestions = creatorData.find(item => item.name === 'Teacher Created')?.value || 0;
+      const approvedQuestions = approvalData.find(item => item.name === 'Approved')?.value || 0;
+      const pendingApproval = approvalData.find(item => item.name === 'Pending Review')?.value || 0;
 
-      const { data: tests, error: testsError } = await supabase
-        .from('generated_tests')
-        .select('created_at');
-
-      if (testsError) throw testsError;
-
-      // Process Bloom's level distribution
-      const bloomCounts = questions?.reduce((acc: Record<string, number>, q) => {
-        acc[q.bloom_level] = (acc[q.bloom_level] || 0) + 1;
-        return acc;
-      }, {}) || {};
-
-      const bloomDistribution = Object.entries(bloomCounts).map(([name, value], index) => ({
-        name: name.charAt(0).toUpperCase() + name.slice(1),
-        value: value as number,
-        color: COLORS.bloom[index % COLORS.bloom.length]
+      // Transform topic analysis data
+      const topicAnalysis = topicData.slice(0, 10).map((item) => ({
+        topic: item.topic,
+        questionCount: item.count,
+        approvalRate: item.count > 0 ? Math.round((item.approved / item.count) * 100) : 0
       }));
 
-      // Process difficulty distribution
-      const difficultyCounts = questions?.reduce((acc: Record<string, number>, q) => {
-        acc[q.difficulty] = (acc[q.difficulty] || 0) + 1;
-        return acc;
-      }, {}) || {};
+      // Calculate usage stats (mock for now until we have real usage tracking)
+      const usageStats = [
+        { name: 'Used in Tests', value: Math.floor(totalQuestions * 0.6), percentage: 60 },
+        { name: 'Unused', value: Math.floor(totalQuestions * 0.4), percentage: 40 }
+      ];
 
-      const difficultyDistribution = Object.entries(difficultyCounts).map(([name, value], index) => ({
-        name: name.charAt(0).toUpperCase() + name.slice(1),
-        value: value as number,
-        color: COLORS.difficulty[index % COLORS.difficulty.length]
-      }));
-
-      // Process topic distribution
-      const topicCounts = questions?.reduce((acc: Record<string, number>, q) => {
-        acc[q.topic] = (acc[q.topic] || 0) + 1;
-        return acc;
-      }, {}) || {};
-
-      const topicDistribution = Object.entries(topicCounts)
-        .map(([topic, count]) => ({ topic, count: count as number }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 10);
-
-      // Calculate stats
-      const totalQuestions = questions?.length || 0;
-      const approvedQuestions = questions?.filter(q => q.approved).length || 0;
-      const totalTests = tests?.length || 0;
-      const avgConfidence = questions?.length ? 
-        questions.reduce((sum, q) => sum + (q.ai_confidence_score || 0), 0) / questions.length : 0;
-
-      setData({
-        bloomDistribution,
-        difficultyDistribution,
-        topicDistribution
-      });
-
-      setStats({
+      setAnalytics({
+        bloomDistribution: bloomData,
+        creatorStats: creatorData,
+        timeSeriesData: usageData,
+        difficultySpread: difficultyData,
+        usageStats,
+        approvalStats: approvalData,
+        topicAnalysis,
         totalQuestions,
+        aiQuestions,
+        teacherQuestions,
         approvedQuestions,
-        totalTests,
-        avgConfidence
+        pendingApproval,
+        loading: false,
       });
-
     } catch (error) {
-      console.error('Error fetching analytics data:', error);
-    } finally {
-      setLoading(false);
+      console.error('Error loading analytics:', error);
+      setAnalytics(prev => ({ ...prev, loading: false }));
     }
   };
 
-  if (loading) {
+  if (analytics.loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Clock className="h-8 w-8 animate-spin" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-64 w-full" />
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-64 w-full" />
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
+  const chartConfig = {
+    desktop: {
+      label: "Desktop",
+      color: "hsl(var(--chart-1))",
+    },
+    mobile: {
+      label: "Mobile", 
+      color: "hsl(var(--chart-2))",
+    },
+  };
+
   return (
     <div className="space-y-6">
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Questions</p>
-                <p className="text-2xl font-bold">{stats.totalQuestions}</p>
-              </div>
-              <BookOpen className="h-8 w-8 text-blue-500" />
-            </div>
+      {/* Summary Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Questions</CardTitle>
+            <BarChart3 className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{analytics.totalQuestions}</div>
+            <p className="text-xs text-muted-foreground">
+              In question bank
+            </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Approved</p>
-                <p className="text-2xl font-bold">{stats.approvedQuestions}</p>
-              </div>
-              <CheckCircle className="h-8 w-8 text-green-500" />
-            </div>
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">AI Generated</CardTitle>
+            <Brain className="h-4 w-4 text-primary-glow" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{analytics.aiQuestions}</div>
+            <p className="text-xs text-muted-foreground">
+              {analytics.totalQuestions > 0 
+                ? Math.round((analytics.aiQuestions / analytics.totalQuestions) * 100)
+                : 0}% of total
+            </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Tests Generated</p>
-                <p className="text-2xl font-bold">{stats.totalTests}</p>
-              </div>
-              <Target className="h-8 w-8 text-purple-500" />
-            </div>
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Teacher Created</CardTitle>
+            <TrendingUp className="h-4 w-4 text-secondary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{analytics.teacherQuestions}</div>
+            <p className="text-xs text-muted-foreground">
+              {analytics.totalQuestions > 0 
+                ? Math.round((analytics.teacherQuestions / analytics.totalQuestions) * 100)
+                : 0}% of total
+            </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Avg AI Confidence</p>
-                <p className="text-2xl font-bold">{Math.round(stats.avgConfidence * 100)}%</p>
-              </div>
-              <Brain className="h-8 w-8 text-orange-500" />
-            </div>
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Approved Questions</CardTitle>
+            <CheckCircle className="h-4 w-4 text-secondary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{analytics.approvedQuestions}</div>
+            <p className="text-xs text-muted-foreground">
+              {analytics.pendingApproval} pending review
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Charts */}
+      {/* Primary Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Bloom's Taxonomy Distribution */}
-        <Card>
+        {/* Bloom's Distribution Pie Chart */}
+        <Card className="bg-gradient-card border-0 shadow-card">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Brain className="h-5 w-5" />
+              <PieIcon className="h-5 w-5" />
               Bloom's Taxonomy Distribution
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={data?.bloomDistribution}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {data?.bloomDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            {analytics.bloomDistribution.length > 0 ? (
+              <ChartContainer
+                config={chartConfig}
+                className="mx-auto aspect-square max-h-[300px]"
+              >
+                <PieChart>
+                  <Pie
+                    data={analytics.bloomDistribution}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    innerRadius={40}
+                    paddingAngle={2}
+                  >
+                    {analytics.bloomDistribution.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={BLOOM_COLORS[entry.name as keyof typeof BLOOM_COLORS] || BLOOM_COLORS.Unknown}
+                      />
+                    ))}
+                  </Pie>
+                  <ChartTooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length > 0) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="rounded-lg border bg-background p-2 shadow-md">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="flex flex-col">
+                                <span className="text-[0.70rem] uppercase text-muted-foreground">
+                                  {data.name}
+                                </span>
+                                <span className="font-bold text-muted-foreground">
+                                  {data.value} questions ({data.percentage}%)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </PieChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Creator Stats */}
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Question Sources
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {analytics.creatorStats.length > 0 ? (
+              <ChartContainer config={chartConfig} className="max-h-[300px]">
+                <BarChart data={analytics.creatorStats}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
+                  <XAxis 
+                    dataKey="name" 
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                  />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <Bar 
+                    dataKey="value" 
+                    radius={[4, 4, 0, 0]}
+                    fill="hsl(var(--primary))"
+                  />
+                  <ChartTooltip
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="rounded-lg border bg-background p-2 shadow-md">
+                            <p className="font-medium">{label}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {payload[0].value} questions
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </BarChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No data available
+              </div>
+            )}
           </CardContent>
         </Card>
 
         {/* Difficulty Distribution */}
-        <Card>
+        <Card className="bg-gradient-card border-0 shadow-card">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
+              <Target className="h-5 w-5" />
               Difficulty Distribution
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={data?.difficultyDistribution}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="value" fill="#8884d8">
-                  {data?.difficultyDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {analytics.difficultySpread.length > 0 ? (
+              <ChartContainer
+                config={chartConfig}
+                className="mx-auto aspect-square max-h-[300px]"
+              >
+                <PieChart>
+                  <Pie
+                    data={analytics.difficultySpread}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    innerRadius={40}
+                    paddingAngle={2}
+                  >
+                    {analytics.difficultySpread.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={DIFFICULTY_COLORS[entry.name as keyof typeof DIFFICULTY_COLORS] || DIFFICULTY_COLORS.Unknown}
+                      />
+                    ))}
+                  </Pie>
+                  <ChartTooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length > 0) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="rounded-lg border bg-background p-2 shadow-md">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="flex flex-col">
+                                <span className="text-[0.70rem] uppercase text-muted-foreground">
+                                  {data.name}
+                                </span>
+                                <span className="font-bold text-muted-foreground">
+                                  {data.value} questions ({data.percentage}%)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </PieChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* System Activity Over Time */}
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Usage Over Time
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {analytics.timeSeriesData.length > 0 ? (
+              <ChartContainer config={chartConfig} className="max-h-[300px]">
+                <LineChart data={analytics.timeSeriesData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                  />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <Line 
+                    type="monotone" 
+                    dataKey="count" 
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={2}
+                    dot={{ r: 4 }}
+                    activeDot={{ r: 6 }}
+                  />
+                  <ChartTooltip
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="rounded-lg border bg-background p-2 shadow-md">
+                            <p className="font-medium">{label}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {payload[0].value} activities
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </LineChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No data available
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Topic Analysis */}
+      {analytics.topicAnalysis.length > 0 && (
+        <Card className="bg-gradient-card border-0 shadow-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5" />
+              Top Topics by Question Count
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={chartConfig} className="max-h-[400px]">
+              <BarChart data={analytics.topicAnalysis} layout="horizontal">
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
+                <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                <YAxis 
+                  type="category" 
+                  dataKey="topic" 
+                  stroke="hsl(var(--muted-foreground))" 
+                  fontSize={12}
+                  width={120}
+                />
+                <Bar 
+                  dataKey="questionCount" 
+                  radius={[0, 4, 4, 0]}
+                  fill="hsl(var(--primary))"
+                />
+                <ChartTooltip
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="rounded-lg border bg-background p-2 shadow-md">
+                          <p className="font-medium">{label}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {payload[0].value} questions ({payload[0].payload?.approvalRate}% approved)
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+              </BarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
-}
+};
+
+export default AnalyticsCharts;

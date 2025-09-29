@@ -7,13 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, Calculator, Users } from "lucide-react";
+import { Plus, Trash2, Calculator, Brain, Target, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { TOSMatrix } from "./TOSMatrix";
-import { useCollaborativeEditing } from "@/hooks/useCollaborativeEditing";
-import { CollaborationIndicator } from "./CollaborationIndicator";
-import { supabase } from "@/integrations/supabase/client";
-import { CollaborativeDocumentManager } from "./CollaborativeDocumentManager";
+import { TOS } from "@/services/db/tos";
+import { Analytics } from "@/services/db/analytics";
+import { EdgeFunctions } from "@/services/edgeFunctions";
+import { useRealtime } from "@/hooks/useRealtime";
+import { usePresence } from "@/hooks/usePresence";
+import { buildTestConfigFromTOS } from "@/utils/testVersions";
 
 const topicSchema = z.object({
   topic: z.string().min(1, "Topic name is required"),
@@ -21,13 +25,13 @@ const topicSchema = z.object({
 });
 
 const tosSchema = z.object({
-  subjectNo: z.string().min(1, "Subject number is required"),
+  subject_no: z.string().min(1, "Subject number is required"),
   course: z.string().min(1, "Course is required"),
-  subjectDescription: z.string().min(1, "Subject description is required"),
-  yearSection: z.string().min(1, "Year & section is required"),
-  examPeriod: z.string().min(1, "Exam period is required"),
-  schoolYear: z.string().min(1, "School year is required"),
-  totalItems: z.number().min(10, "Minimum 10 items required").max(100, "Maximum 100 items allowed"),
+  description: z.string().min(1, "Subject description is required"),
+  year_section: z.string().min(1, "Year & section is required"),
+  period: z.string().min(1, "Exam period is required"),
+  school_year: z.string().min(1, "School year is required"),
+  total_items: z.number().min(10, "Minimum 10 items required").max(100, "Maximum 100 items allowed"),
   topics: z.array(topicSchema).min(1, "At least one topic is required")
 });
 
@@ -52,41 +56,41 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   const [topics, setTopics] = useState([{ topic: "", hours: 0 }]);
   const [tosMatrix, setTosMatrix] = useState<any>(null);
   const [showMatrix, setShowMatrix] = useState(false);
-  const [showCollaboration, setShowCollaboration] = useState(false);
+  const [sufficiencyAnalysis, setSufficiencyAnalysis] = useState<any>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isGeneratingTest, setIsGeneratingTest] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStatus, setGenerationStatus] = useState("");
+  const [collaborators, setCollaborators] = useState<any[]>([]);
 
-  // Generate document ID for collaboration
-  const documentId = `tos-builder-${Date.now()}`;
-  
+  // Real-time collaboration setup
+  const { users: presenceUsers, isConnected } = usePresence('tos-builder', {
+    name: 'Current User', // This should come from auth context
+    email: 'user@example.com' // This should come from auth context
+  });
+
+  // Real-time updates for TOS changes
+  useRealtime('tos-collaboration', {
+    table: 'tos',
+    onChange: (payload) => {
+      if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+        toast.info('TOS updated by collaborator');
+        // Optionally refresh data or show notification
+      }
+    }
+  });
+
   const form = useForm<TOSFormData>({
     resolver: zodResolver(tosSchema),
     defaultValues: {
-      totalItems: 50,
+      total_items: 50,
       topics: topics
     }
   });
 
   const { register, handleSubmit, formState: { errors }, setValue, watch } = form;
 
-  const {
-    users,
-    documentData,
-    isConnected,
-    currentUser,
-    broadcastChange,
-    saveToDatabase
-  } = useCollaborativeEditing({
-    documentId,
-    documentType: 'tos',
-    initialData: { topics },
-    onDataChange: (data) => {
-      if (data.topics) {
-        setTopics(data.topics);
-        form.reset(data);
-      }
-    }
-  });
-
-  const watchedTotalItems = watch("totalItems");
+  const watchedTotalItems = watch("total_items");
 
   const addTopic = () => {
     const newTopics = [...topics, { topic: "", hours: 0 }];
@@ -107,9 +111,6 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     newTopics[index] = { ...newTopics[index], [field]: value };
     setTopics(newTopics);
     setValue("topics", newTopics);
-    
-    // Broadcast changes for collaborative editing
-    broadcastChange({ topics: newTopics });
   };
 
   const calculateTOSMatrix = (data: TOSFormData) => {
@@ -135,7 +136,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
 
     data.topics.forEach(topic => {
       const topicPercentage = topic.hours / totalHours;
-      const topicItems = Math.round(data.totalItems * topicPercentage);
+      const topicItems = Math.round(data.total_items * topicPercentage);
       
       distribution[topic.topic] = {
         remembering: [],
@@ -158,19 +159,41 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     });
 
     // Adjust for any rounding discrepancies
-    while (itemCounter <= data.totalItems) {
+    while (itemCounter <= data.total_items) {
       // Add remaining items to the first topic's "understanding" level
       const firstTopic = data.topics[0].topic;
       distribution[firstTopic].understanding.push(itemCounter);
       itemCounter++;
     }
 
+    // Build the matrix format expected by the system
+    const matrix: Record<string, Record<string, { count: number; items: number[] }>> = {};
+    
+    Object.entries(distribution).forEach(([topicName, bloomData]) => {
+      matrix[topicName] = {};
+      Object.entries(bloomData).forEach(([bloomLevel, items]) => {
+        matrix[topicName][bloomLevel] = {
+          count: items.length,
+          items: items
+        };
+      });
+    });
     return {
-      formData: data,
-      distribution,
+      id: crypto.randomUUID(), // Temporary ID for new TOS
+      subject_no: data.subject_no,
+      course: data.course,
+      description: data.description,
+      year_section: data.year_section,
+      period: data.period,
+      school_year: data.school_year,
+      total_items: data.total_items,
+      topics: data.topics,
+      bloom_distribution: bloomDistribution,
+      matrix,
       totalHours,
-      createdBy: "Teacher",
-      createdAt: new Date().toISOString()
+      prepared_by: "Teacher",
+      noted_by: "Dean, CCIS",
+      created_at: new Date().toISOString()
     };
   };
 
@@ -179,57 +202,121 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     if (matrix) {
       setTosMatrix(matrix);
       setShowMatrix(true);
+      // Analyze sufficiency when matrix is generated
+      analyzeSufficiency(matrix);
       toast.success("TOS Matrix generated successfully!");
+    }
+  };
+
+  const analyzeSufficiency = async (matrix: any) => {
+    setIsAnalyzing(true);
+    try {
+      const analysis = await Analytics.getQuestionBankSufficiency(matrix.id);
+      setSufficiencyAnalysis(analysis);
+      
+      // Calculate if sufficient
+      const totalShortage = Object.values(analysis).reduce((total: number, topicData: any) => {
+        return total + Object.values(topicData as Record<string, any>).reduce((topicTotal: number, bloomData: any) => {
+          return topicTotal + (Number(bloomData.shortage) || 0);
+        }, 0);
+      }, 0);
+      
+      if (totalShortage > 0) {
+        toast.warning(`Question bank has ${totalShortage} missing questions across topics.`);
+      } else {
+        toast.success("Question bank is sufficient for this TOS!");
+      }
+    } catch (error) {
+      console.error('Error analyzing TOS sufficiency:', error);
+      toast.error("Failed to analyze question bank sufficiency");
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
   const handleSaveMatrix = () => {
     if (tosMatrix) {
-      // TODO: Save to database
-      toast.success("TOS saved successfully!");
+      saveTOSMatrix();
     }
   };
-
-  const handleGenerateQuestions = async () => {
+  
+  const saveTOSMatrix = async () => {
     if (!tosMatrix) return;
     
     try {
-      toast.loading("Generating questions from TOS matrix...");
+      // Remove temporary ID before saving
+      const { id, ...tosData } = tosMatrix;
       
-      const { data, error } = await supabase.functions.invoke('generate-questions-from-tos', {
-        body: { tosMatrix }
-      });
+      const savedTOS = await TOS.create(tosData);
+      setTosMatrix({ ...savedTOS, totalHours: tosMatrix.totalHours });
       
-      if (error) throw error;
+      toast.success("TOS matrix saved successfully!");
+    } catch (error) {
+      console.error('Error saving TOS:', error);
+      toast.error("Failed to save TOS matrix");
+    }
+  };
+
+  const handleGenerateTest = async () => {
+    if (!tosMatrix) return;
+    
+    setIsGeneratingTest(true);
+    setGenerationProgress(0);
+    setGenerationStatus("Initializing test generation...");
+    
+    try {
+      setGenerationProgress(20);
+      setGenerationStatus("Building test configuration from TOS...");
       
-      // Save generated questions to database
-      if (data.questions && data.questions.length > 0) {
-        const questionsToSave = data.questions.map((q: any) => ({
-          question_text: q.question_text,
-          question_type: q.question_type,
-          choices: q.choices,
-          correct_answer: q.correct_answer,
-          bloom_level: q.bloom_level,
-          difficulty: q.difficulty,
-          topic: q.topic,
-          knowledge_dimension: q.knowledge_dimension || 'factual',
-          created_by: 'AI Generated from TOS'
-        }));
-        
-        const { error: saveError } = await supabase
-          .from('questions')
-          .insert(questionsToSave);
-          
-        if (saveError) throw saveError;
-        
-        toast.success(`Successfully generated ${data.questions.length} questions from TOS!`);
-        
-        // Navigate to Question Bank to view generated questions
-        // You could add navigation logic here if needed
+      const testConfig = buildTestConfigFromTOS(tosMatrix);
+      
+      setGenerationProgress(40);
+      setGenerationStatus("Generating questions from TOS matrix...");
+      
+      const result = await EdgeFunctions.generateQuestionsFromTOS(
+        testConfig,
+        (status, progress) => {
+          setGenerationStatus(status);
+          setGenerationProgress(40 + (progress * 0.4)); // 40-80% range
+        }
+      );
+      
+      setGenerationProgress(90);
+      setGenerationStatus("Finalizing test generation...");
+      
+      // Save generated questions to database if they're new AI questions
+      if (result.statistics.ai_generated > 0) {
+        const aiQuestions = result.questions.filter((q: any) => q.created_by === 'ai');
+        // These would be inserted by the edge function or here
+      }
+      
+      setGenerationProgress(100);
+      setGenerationStatus("Test generation complete!");
+      
+      toast.success(`Successfully generated ${result.questions.length} questions!`);
+      
+      if (result.statistics.ai_generated > 0) {
+        toast.info(`Generated ${result.statistics.ai_generated} new AI questions to fill gaps`);
+      }
+      
+      if (result.generation_log.some((log: any) => log.generated > 0)) {
+        setTimeout(() => {
+          const generatedTopics = result.generation_log
+            .filter((log: any) => log.generated > 0)
+            .map((log: any) => `${log.topic} (${log.generated} questions)`)
+            .join(', ');
+          toast.warning(`Generated questions for: ${generatedTopics}`);
+        }, 1000);
       }
     } catch (error) {
-      console.error('Error generating questions:', error);
-      toast.error('Failed to generate questions. Please try again.');
+      console.error('Error generating test:', error);
+      toast.error('Failed to generate test. Please try again.');
+    } finally {
+      setIsGeneratingTest(false);
+      setTimeout(() => {
+        setGenerationProgress(0);
+        setGenerationStatus("");
+      }, 2000);
     }
   };
 
@@ -251,20 +338,93 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         </div>
         <TOSMatrix data={tosMatrix} />
         
-        {/* Generate Questions Section */}
+        {/* Sufficiency Analysis */}
+        {sufficiencyAnalysis && (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Target className="w-5 h-5" />
+                Question Bank Analysis
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {Object.entries(sufficiencyAnalysis).map(([topic, bloomData]: [string, any]) => (
+                <div key={topic} className="mb-4">
+                  <h4 className="font-semibold mb-2">{topic}</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                    {Object.entries(bloomData).map(([bloom, data]: [string, any]) => (
+                      <div key={bloom} className="flex justify-between items-center p-2 border rounded">
+                        <span className="capitalize">{bloom}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-green-600">{data.available}</span>
+                          <span>/</span>
+                          <span className="text-blue-600">{data.needed}</span>
+                          {data.shortage > 0 && (
+                            <span className="text-red-600">(-{data.shortage})</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              
+              {Object.values(sufficiencyAnalysis).some((topicData: any) => 
+                Object.values(topicData).some((bloomData: any) => bloomData.shortage > 0)
+              ) && (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Some topics have insufficient questions. AI will generate questions to fill gaps during test creation.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        )}
+        
+        {/* Generate Test Section */}
         <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calculator className="w-5 h-5" />
+              Generate Test from TOS
+            </CardTitle>
+          </CardHeader>
           <CardContent className="pt-6">
             <div className="text-center space-y-4">
               <p className="text-muted-foreground">
-                Once your TOS is finalized, click below to automatically generate matching test questions based on your instructional plan.
+                Generate a complete test with multiple versions based on this TOS matrix. 
+                The system will use existing approved questions and generate AI questions for any gaps.
               </p>
+              
+              {isGeneratingTest && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>{generationStatus}</span>
+                    <span>{Math.round(generationProgress)}%</span>
+                  </div>
+                  <Progress value={generationProgress} />
+                </div>
+              )}
+              
               <Button
                 variant="default"
                 size="lg"
                 className="px-8 py-3"
-                onClick={handleGenerateQuestions}
+                onClick={handleGenerateTest}
+                disabled={isGeneratingTest || isAnalyzing}
               >
-                🧠 Generate Questions from This TOS
+                {isGeneratingTest ? (
+                  <>
+                    <Brain className="w-5 h-5 mr-2 animate-spin" />
+                    {generationStatus || 'Generating Test...'}
+                  </>
+                ) : (
+                  <>
+                    🧠 Generate Complete Test from TOS
+                  </>
+                )}
               </Button>
             </div>
           </CardContent>
@@ -277,38 +437,10 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-academic-primary">
+          <CardTitle className="flex items-center gap-2 text-academic-primary">
               <Calculator className="h-5 w-5" />
               Table of Specification Builder
-            </div>
-            <div className="flex items-center gap-2">
-              <CollaborationIndicator 
-                users={users}
-                isConnected={isConnected}
-                currentUser={currentUser}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCollaboration(!showCollaboration)}
-              >
-                <Users className="w-4 h-4 mr-2" />
-                Share
-              </Button>
-            </div>
           </CardTitle>
-          {showCollaboration && (
-            <div className="mt-4">
-              <CollaborativeDocumentManager
-                documentId={documentId}
-                documentType="tos"
-                documentTitle="Table of Specification"
-                currentUserEmail="teacher@example.com"
-                isOwner={true}
-              />
-            </div>
-          )}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -318,11 +450,11 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                 <Label htmlFor="subjectNo">Subject No.</Label>
                 <Input
                   id="subjectNo"
-                  {...register("subjectNo")}
+                  {...register("subject_no")}
                   placeholder="e.g., IS 9"
                 />
-                {errors.subjectNo && (
-                  <p className="text-sm text-destructive mt-1">{errors.subjectNo.message}</p>
+                {errors.subject_no && (
+                  <p className="text-sm text-destructive mt-1">{errors.subject_no.message}</p>
                 )}
               </div>
               
@@ -342,11 +474,11 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                 <Label htmlFor="subjectDescription">Subject Description</Label>
                 <Input
                   id="subjectDescription"
-                  {...register("subjectDescription")}
+                  {...register("description")}
                   placeholder="e.g., System Analysis and Design"
                 />
-                {errors.subjectDescription && (
-                  <p className="text-sm text-destructive mt-1">{errors.subjectDescription.message}</p>
+                {errors.description && (
+                  <p className="text-sm text-destructive mt-1">{errors.description.message}</p>
                 )}
               </div>
 
@@ -354,11 +486,11 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                 <Label htmlFor="yearSection">Year & Section</Label>
                 <Input
                   id="yearSection"
-                  {...register("yearSection")}
+                  {...register("year_section")}
                   placeholder="e.g., BSIS-3A"
                 />
-                {errors.yearSection && (
-                  <p className="text-sm text-destructive mt-1">{errors.yearSection.message}</p>
+                {errors.year_section && (
+                  <p className="text-sm text-destructive mt-1">{errors.year_section.message}</p>
                 )}
               </div>
 
@@ -366,11 +498,11 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                 <Label htmlFor="examPeriod">Exam Period</Label>
                 <Input
                   id="examPeriod"
-                  {...register("examPeriod")}
+                  {...register("period")}
                   placeholder="e.g., Final Examination"
                 />
-                {errors.examPeriod && (
-                  <p className="text-sm text-destructive mt-1">{errors.examPeriod.message}</p>
+                {errors.period && (
+                  <p className="text-sm text-destructive mt-1">{errors.period.message}</p>
                 )}
               </div>
 
@@ -378,11 +510,11 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                 <Label htmlFor="schoolYear">School Year</Label>
                 <Input
                   id="schoolYear"
-                  {...register("schoolYear")}
+                  {...register("school_year")}
                   placeholder="e.g., 2024-2025"
                 />
-                {errors.schoolYear && (
-                  <p className="text-sm text-destructive mt-1">{errors.schoolYear.message}</p>
+                {errors.school_year && (
+                  <p className="text-sm text-destructive mt-1">{errors.school_year.message}</p>
                 )}
               </div>
 
@@ -391,12 +523,12 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                 <Input
                   id="totalItems"
                   type="number"
-                  {...register("totalItems", { valueAsNumber: true })}
+                  {...register("total_items", { valueAsNumber: true })}
                   min="10"
                   max="100"
                 />
-                {errors.totalItems && (
-                  <p className="text-sm text-destructive mt-1">{errors.totalItems.message}</p>
+                {errors.total_items && (
+                  <p className="text-sm text-destructive mt-1">{errors.total_items.message}</p>
                 )}
               </div>
             </div>

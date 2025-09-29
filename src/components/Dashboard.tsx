@@ -1,7 +1,9 @@
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { AnalyticsCharts } from "@/components/AnalyticsCharts";
+import { useRealtime } from "@/hooks/useRealtime";
 import { 
   BookOpen, 
   Brain, 
@@ -40,6 +42,26 @@ export const Dashboard = ({
   onNavigate 
 }: DashboardProps) => {
   
+  const [realtimeActivity, setRealtimeActivity] = useState<any[]>([]);
+  const [systemStatus, setSystemStatus] = useState<'online' | 'offline'>('online');
+
+  // Real-time activity monitoring
+  useRealtime('dashboard-activity', {
+    table: 'activity_log',
+    onInsert: (newActivity) => {
+      setRealtimeActivity(prev => [newActivity, ...prev.slice(0, 4)]);
+    }
+  });
+
+  // Monitor system-wide changes
+  useRealtime('dashboard-questions', {
+    table: 'questions',
+    onChange: () => {
+      // Update stats in real-time when questions change
+      setSystemStatus('online');
+    }
+  });
+
   const quickActions = [
     {
       title: "Create TOS",

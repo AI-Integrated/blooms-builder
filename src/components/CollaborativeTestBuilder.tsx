@@ -484,7 +484,8 @@ export const CollaborativeTestBuilder: React.FC<CollaborativeTestBuilderProps> =
                   </div>
                   {currentUser && (
                     <div className="flex items-center gap-2 p-2 bg-primary/5 rounded border border-primary/20">
-                      <div className="h-6 w-6 rounded-full text-xs text-white flex items-center justify-center" style={{ backgroundColor: currentUser.color }}>
+                      <div className="h-6 w-6 rounded-full flex items-center justify-center text-white text-xs"
+                           style={{ backgroundColor: currentUser.color }}>
                         {currentUser.name.charAt(0).toUpperCase()}
                       </div>
                       <span className="text-sm font-medium">{currentUser.name}</span>

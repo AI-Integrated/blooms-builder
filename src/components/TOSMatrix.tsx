@@ -2,40 +2,39 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Download, Printer } from "lucide-react";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import { PDFExporter } from "@/utils/exportPdf";
 import { toast } from "sonner";
 
 interface TOSMatrixProps {
   data: {
-    formData: {
-      subjectNo: string;
-      course: string;
-      subjectDescription: string;
-      yearSection: string;
-      examPeriod: string;
-      schoolYear: string;
-      totalItems: number;
-      topics: { topic: string; hours: number }[];
-    };
-    distribution: {
+    id: string;
+    subject_no: string;
+    course: string;
+    description: string;
+    year_section: string;
+    period: string;
+    school_year: string;
+    total_items: number;
+    topics: { name?: string; topic?: string; hours: number }[];
+    matrix: {
       [topic: string]: {
-        remembering: number[];
-        understanding: number[];
-        applying: number[];
-        analyzing: number[];
-        evaluating: number[];
-        creating: number[];
+        remembering: { count: number; items: number[] };
+        understanding: { count: number; items: number[] };
+        applying: { count: number; items: number[] };
+        analyzing: { count: number; items: number[] };
+        evaluating: { count: number; items: number[] };
+        creating: { count: number; items: number[] };
       };
     };
     totalHours: number;
-    createdBy: string;
-    createdAt: string;
+    prepared_by: string;
+    noted_by: string;
+    created_at: string;
   };
 }
 
 export const TOSMatrix = ({ data }: TOSMatrixProps) => {
-  const { formData, distribution, totalHours } = data;
+  const { matrix, totalHours } = data;
 
   const bloomLevels = [
     { key: 'remembering', label: 'Remembering', difficulty: 'Easy' },
@@ -47,12 +46,12 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
   ];
 
   const getTopicTotal = (topic: string) => {
-    return Object.values(distribution[topic]).reduce((sum, items) => sum + items.length, 0);
+    return Object.values(matrix[topic]).reduce((sum, bloomData) => sum + bloomData.count, 0);
   };
 
   const getBloomTotal = (bloomKey: string) => {
-    return Object.keys(distribution).reduce((sum, topic) => {
-      return sum + distribution[topic][bloomKey as keyof typeof distribution[string]].length;
+    return Object.keys(matrix).reduce((sum, topic) => {
+      return sum + (matrix[topic][bloomKey as keyof typeof matrix[string]]?.count || 0);
     }, 0);
   };
 
@@ -94,37 +93,17 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
 
   const exportToPDF = async () => {
     try {
-      const element = document.getElementById('tos-matrix-export');
-      if (!element) return;
-
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true
-      });
+      const result = await PDFExporter.exportTOSMatrix(data.id, true);
+      const filename = `TOS_${data.subject_no}_${data.period}.pdf`;
       
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('l', 'mm', 'a4'); // Landscape orientation
+      // Download the file
+      PDFExporter.downloadBlob(result.blob, filename);
       
-      const imgWidth = 297; // A4 landscape width
-      const pageHeight = 210; // A4 landscape height
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      
-      let position = 0;
-      
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      
-      pdf.save(`TOS_${formData.subjectNo}_${formData.examPeriod}.pdf`);
       toast.success("TOS matrix exported successfully!");
+      
+      if (result.storageUrl) {
+        toast.success("TOS matrix also saved to cloud storage!");
+      }
     } catch (error) {
       toast.error("Failed to export PDF");
       console.error("Export error:", error);
@@ -132,7 +111,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
   };
 
   const handlePrint = () => {
-    window.print();
+    PDFExporter.printElement('tos-matrix-export', `TOS Matrix - ${data.description}`);
   };
 
   return (
@@ -160,14 +139,14 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
           
           <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
             <div className="text-left">
-              <p><strong>Subject No.:</strong> {formData.subjectNo}</p>
-              <p><strong>Course:</strong> {formData.course}</p>
-              <p><strong>Subject Description:</strong> {formData.subjectDescription}</p>
+              <p><strong>Subject No.:</strong> {data.subject_no}</p>
+              <p><strong>Course:</strong> {data.course}</p>
+              <p><strong>Subject Description:</strong> {data.description}</p>
             </div>
             <div className="text-left">
-              <p><strong>Year & Section:</strong> {formData.yearSection}</p>
-              <p><strong>Examination:</strong> {formData.examPeriod}</p>
-              <p><strong>School Year:</strong> {formData.schoolYear}</p>
+              <p><strong>Year & Section:</strong> {data.year_section}</p>
+              <p><strong>Examination:</strong> {data.period}</p>
+              <p><strong>School Year:</strong> {data.school_year}</p>
             </div>
           </div>
         </CardHeader>
@@ -207,14 +186,15 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {formData.topics.map((topic) => {
+                {data.topics.map((topic) => {
+                  const topicName = topic.name || topic.topic || '';
                   const percentage = ((topic.hours / totalHours) * 100).toFixed(1);
-                  const topicTotal = getTopicTotal(topic.topic);
+                  const topicTotal = getTopicTotal(topicName);
                   
                   return (
-                    <TableRow key={topic.topic}>
+                    <TableRow key={topicName}>
                       <TableCell className="border border-border font-medium p-2">
-                        {topic.topic}
+                        {topicName}
                       </TableCell>
                       <TableCell className="border border-border text-center p-2">
                         {topic.hours}
@@ -223,10 +203,12 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
                         {percentage}%
                       </TableCell>
                       {bloomLevels.map((level) => {
-                        const items = distribution[topic.topic][level.key as keyof typeof distribution[string]];
+                        const bloomData = matrix[topicName]?.[level.key as keyof typeof matrix[string]];
+                        const items = bloomData?.items || [];
+                        const count = bloomData?.count || 0;
                         return (
                           <TableCell key={level.key} className="border border-border text-center p-1 text-[10px]">
-                            {items.length > 0 ? items.length : "-"}
+                            {count > 0 ? count : "-"}
                             <br />
                             <span className="text-[9px] text-muted-foreground">
                               {formatItemNumbers(items)}
@@ -239,7 +221,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
                       </TableCell>
                       <TableCell className="border border-border text-center p-2 text-[10px]">
                         {formatItemNumbers(
-                          Object.values(distribution[topic.topic]).flat().sort((a, b) => a - b)
+                          Object.values(matrix[topicName] || {}).flatMap(bloomData => bloomData.items || []).sort((a, b) => a - b)
                         )}
                       </TableCell>
                     </TableRow>
@@ -261,10 +243,10 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
                     </TableCell>
                   ))}
                   <TableCell className="border border-border text-center font-bold p-2">
-                    {formData.totalItems}
+                    {data.total_items}
                   </TableCell>
                   <TableCell className="border border-border text-center font-bold p-2">
-                    1-{formData.totalItems}
+                    1-{data.total_items}
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -278,14 +260,14 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
             <div className="text-center">
               <p className="mb-8">Prepared by:</p>
               <div className="border-b border-black pb-1 mb-2">
-                <strong>{data.createdBy}</strong>
+                <strong>{data.prepared_by}</strong>
               </div>
               <p className="text-sm">Faculty</p>
             </div>
             <div className="text-center">
               <p className="mb-8">Noted by:</p>
               <div className="border-b border-black pb-1 mb-2">
-                <strong>_________________________</strong>
+                <strong>{data.noted_by}</strong>
               </div>
               <p className="text-sm">Dean, CCIS</p>
             </div>

@@ -7,30 +7,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Trash2, Save, Target, FileText } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { Plus, Trash2, Save, Target, FileText, Sparkles, Brain } from 'lucide-react';
+import { Questions } from '@/services/db/questions';
+import { EdgeFunctions } from '@/services/edgeFunctions';
+import { classifyQuestion } from '@/services/ai/classify';
 import { toast } from 'sonner';
-import { RubricDefinition } from './RubricDefinition';
 
 interface QuestionFormProps {
   onSave: (question: any) => void;
   onCancel: () => void;
   existingQuestion?: any;
-}
-
-interface QuestionRubric {
-  id?: string;
-  question_id: string;
-  title: string;
-  description: string;
-  total_points: number;
-  criteria: Array<{
-    id?: string;
-    criterion_name: string;
-    description: string;
-    max_points: number;
-    order_index: number;
-  }>;
 }
 
 export const QuestionForm: React.FC<QuestionFormProps> = ({
@@ -40,57 +26,91 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
 }) => {
   const [formData, setFormData] = useState({
     question_text: '',
-    question_type: 'multiple_choice',
+    question_type: 'mcq',
     topic: '',
     bloom_level: 'remembering',
     difficulty: 'easy',
     knowledge_dimension: 'factual',
     choices: ['', '', '', ''],
     correct_answer: '',
-    created_by: 'teacher'
+    created_by: 'teacher',
+    approved: true,
+    needs_review: false,
+    ai_confidence_score: 1.0
   });
 
-  const [showRubricDefinition, setShowRubricDefinition] = useState(false);
-  const [questionRubric, setQuestionRubric] = useState<QuestionRubric | null>(null);
   const [saving, setSaving] = useState(false);
+  const [classifying, setClassifying] = useState(false);
 
   useEffect(() => {
     if (existingQuestion) {
       setFormData({
-        ...existingQuestion,
-        choices: existingQuestion.choices ? Object.values(existingQuestion.choices) : ['', '', '', '']
+        question_text: existingQuestion.question_text || '',
+        question_type: existingQuestion.question_type || 'mcq',
+        topic: existingQuestion.topic || '',
+        bloom_level: existingQuestion.bloom_level || 'remembering',
+        difficulty: existingQuestion.difficulty || 'easy',
+        knowledge_dimension: existingQuestion.knowledge_dimension || 'factual',
+        choices: existingQuestion.choices ? Object.values(existingQuestion.choices) : ['', '', '', ''],
+        correct_answer: existingQuestion.correct_answer || '',
+        created_by: existingQuestion.created_by || 'teacher',
+        approved: existingQuestion.approved ?? true,
+        needs_review: existingQuestion.needs_review ?? false,
+        ai_confidence_score: existingQuestion.ai_confidence_score ?? 1.0
       });
-      loadExistingRubric(existingQuestion.id);
     }
   }, [existingQuestion]);
 
-  const loadExistingRubric = async (questionId: string) => {
+  const handleAutoClassify = async () => {
+    if (!formData.question_text.trim()) {
+      toast.error('Please enter a question first');
+      return;
+    }
+
+    setClassifying(true);
     try {
-      const { data: rubricData, error } = await (supabase as any)
-        .from('question_rubrics')
-        .select(`
-          *,
-          criteria:rubric_criteria(*)
-        `)
-        .eq('question_id', questionId)
-        .single();
+      const classification = await EdgeFunctions.classifySingleQuestion(
+        formData.question_text,
+        formData.question_type,
+        formData.topic
+      );
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-        throw error;
-      }
+      setFormData(prev => ({
+        ...prev,
+        bloom_level: classification.bloom_level,
+        difficulty: classification.difficulty,
+        knowledge_dimension: classification.knowledge_dimension,
+        ai_confidence_score: classification.confidence,
+        needs_review: classification.needs_review
+      }));
 
-      if (rubricData) {
-        setQuestionRubric({
-          id: rubricData.id,
-          question_id: rubricData.question_id,
-          title: rubricData.title,
-          description: rubricData.description,
-          total_points: rubricData.total_points,
-          criteria: rubricData.criteria.sort((a, b) => a.order_index - b.order_index)
-        });
-      }
+      toast.success(`Question classified with ${(classification.confidence * 100).toFixed(0)}% confidence`);
     } catch (error) {
-      console.error('Error loading rubric:', error);
+      console.error('Auto-classification error:', error);
+      
+      // Fallback to local classification
+      try {
+        const localClassification = classifyQuestion(
+          formData.question_text,
+          formData.question_type as any,
+          formData.topic
+        );
+
+        setFormData(prev => ({
+          ...prev,
+          bloom_level: localClassification.bloom_level,
+          difficulty: localClassification.difficulty,
+          knowledge_dimension: localClassification.knowledge_dimension,
+          ai_confidence_score: localClassification.confidence,
+          needs_review: localClassification.needs_review
+        }));
+
+        toast.success(`Question classified locally with ${(localClassification.confidence * 100).toFixed(0)}% confidence`);
+      } catch (localError) {
+        toast.error('Classification failed. Please set categories manually.');
+      }
+    } finally {
+      setClassifying(false);
     }
   };
 
@@ -126,7 +146,7 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
     }
 
     // Validate multiple choice questions
-    if (formData.question_type === 'multiple_choice') {
+    if (formData.question_type === 'mcq') {
       const validChoices = formData.choices.filter(choice => choice.trim());
       if (validChoices.length < 2) {
         toast.error('Multiple choice questions need at least 2 choices');
@@ -136,12 +156,6 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
         toast.error('Please specify the correct answer');
         return;
       }
-    }
-
-    // Validate essay/short answer questions
-    if ((formData.question_type === 'essay' || formData.question_type === 'short_answer') && !questionRubric) {
-      toast.error('Please define a rubric for essay/short answer questions');
-      return;
     }
 
     setSaving(true);
@@ -154,7 +168,7 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
         bloom_level: formData.bloom_level,
         difficulty: formData.difficulty,
         knowledge_dimension: formData.knowledge_dimension,
-        choices: formData.question_type === 'multiple_choice' 
+        choices: formData.question_type === 'mcq' 
           ? formData.choices.reduce((acc, choice, index) => {
               if (choice.trim()) {
                 acc[String.fromCharCode(65 + index)] = choice.trim();
@@ -162,35 +176,25 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
               return acc;
             }, {} as Record<string, string>)
           : null,
-        correct_answer: formData.question_type === 'multiple_choice' ? formData.correct_answer : null,
+        correct_answer: formData.question_type === 'mcq' ? formData.correct_answer : null,
         created_by: formData.created_by,
-        approved: true // Auto-approve teacher-created questions
+        approved: formData.approved,
+        ai_confidence_score: formData.ai_confidence_score,
+        needs_review: formData.needs_review
       };
-
-      let questionId = existingQuestion?.id;
 
       if (existingQuestion) {
         // Update existing question
-        const { error } = await (supabase as any)
-          .from('questions')
-          .update(questionData)
-          .eq('id', existingQuestion.id);
-
-        if (error) throw error;
+        const updatedQuestion = await Questions.update(existingQuestion.id, questionData);
+        toast.success('Question updated successfully!');
+        onSave(updatedQuestion);
       } else {
         // Create new question
-        const { data: newQuestion, error } = await (supabase as any)
-          .from('questions')
-          .insert([questionData])
-          .select()
-          .single();
-
-        if (error) throw error;
-        questionId = newQuestion.id;
+        const newQuestion = await Questions.create(questionData);
+        toast.success('Question created successfully!');
+        onSave(newQuestion);
       }
 
-      toast.success(existingQuestion ? 'Question updated successfully!' : 'Question created successfully!');
-      onSave({ ...questionData, id: questionId });
     } catch (error) {
       console.error('Error saving question:', error);
       toast.error('Failed to save question');
@@ -198,26 +202,6 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
       setSaving(false);
     }
   };
-
-  const handleRubricSave = (rubric: QuestionRubric) => {
-    setQuestionRubric(rubric);
-    setShowRubricDefinition(false);
-    toast.success('Rubric defined successfully!');
-  };
-
-  const isEssayType = formData.question_type === 'essay' || formData.question_type === 'short_answer';
-
-  if (showRubricDefinition) {
-    return (
-      <RubricDefinition
-        questionId={existingQuestion?.id || 'temp'}
-        questionText={formData.question_text}
-        onSave={handleRubricSave}
-        onCancel={() => setShowRubricDefinition(false)}
-        existingRubric={questionRubric}
-      />
-    );
-  }
 
   return (
     <Card className="bg-card/80 backdrop-blur-sm border border-border/50 shadow-elegant">
@@ -241,7 +225,7 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="multiple_choice">Multiple Choice</SelectItem>
+                <SelectItem value="mcq">Multiple Choice</SelectItem>
                 <SelectItem value="true_false">True/False</SelectItem>
                 <SelectItem value="essay">Essay</SelectItem>
                 <SelectItem value="short_answer">Short Answer</SelectItem>
@@ -258,6 +242,46 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
               placeholder="Enter topic"
             />
           </div>
+        </div>
+
+        {/* AI Classification Section */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">AI Classification</h3>
+              <p className="text-sm text-muted-foreground">
+                Let AI automatically classify this question's educational attributes
+              </p>
+            </div>
+            <Button 
+              onClick={handleAutoClassify}
+              disabled={classifying || !formData.question_text.trim()}
+              variant="outline"
+              size="sm"
+            >
+              {classifying ? (
+                <>
+                  <Brain className="w-4 h-4 mr-2 animate-spin" />
+                  Classifying...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Auto-Classify
+                </>
+              )}
+            </Button>
+          </div>
+          
+          {formData.ai_confidence_score < 1.0 && (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <Brain className="w-4 h-4 text-blue-600" />
+              <span className="text-sm text-blue-700">
+                AI Confidence: {(formData.ai_confidence_score * 100).toFixed(0)}%
+                {formData.needs_review && ' - Needs Review'}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -330,7 +354,7 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
         </div>
 
         {/* Multiple Choice Options */}
-        {formData.question_type === 'multiple_choice' && (
+        {formData.question_type === 'mcq' && (
           <div>
             <div className="flex justify-between items-center mb-4">
               <Label>Answer Choices</Label>
@@ -397,76 +421,11 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
           </div>
         )}
 
-        {/* Essay/Short Answer Rubric Section */}
-        {isEssayType && (
-          <div>
-            <Separator />
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="text-lg font-semibold">Evaluation Rubric</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Define how this question will be graded
-                  </p>
-                </div>
-                <Button 
-                  onClick={() => setShowRubricDefinition(true)}
-                  variant={questionRubric ? "outline" : "default"}
-                  size="sm"
-                >
-                  <Target className="w-4 h-4 mr-2" />
-                  {questionRubric ? 'Edit Rubric' : 'Define Rubric'}
-                </Button>
-              </div>
-
-              {questionRubric && (
-                <Card className="bg-muted/30 border-muted">
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h4 className="font-semibold">{questionRubric.title}</h4>
-                        <p className="text-sm text-muted-foreground">{questionRubric.description}</p>
-                      </div>
-                      <Badge variant="secondary">
-                        {questionRubric.total_points} points
-                      </Badge>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <span className="text-sm font-medium">Criteria:</span>
-                      <div className="flex flex-wrap gap-2">
-                        {questionRubric.criteria.map((criterion, index) => (
-                          <Badge key={index} variant="outline" className="text-xs">
-                            {criterion.criterion_name} ({criterion.max_points}pts)
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {isEssayType && !questionRubric && (
-                <Card className="bg-yellow-50 border-yellow-200">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 text-yellow-800">
-                      <Target className="w-4 h-4" />
-                      <span className="text-sm font-medium">
-                        Rubric Required: Please define evaluation criteria for this {formData.question_type} question
-                      </span>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Action Buttons */}
         <div className="flex gap-3 pt-4 border-t border-border/50">
           <Button 
             onClick={handleSave}
-            disabled={saving || (isEssayType && !questionRubric)}
+            disabled={saving}
             className="bg-gradient-primary hover:shadow-glow btn-hover focus-ring"
           >
             <Save className="w-4 h-4 mr-2" />

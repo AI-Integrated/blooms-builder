@@ -9,6 +9,7 @@ import { Slider } from '@/components/ui/slider';
 import { Separator } from '@/components/ui/separator';
 import { Save, MessageSquare, Calculator, CheckCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { ActivityLog } from '@/services/db';
 import { toast } from 'sonner';
 
 interface RubricCriterion {
@@ -138,6 +139,8 @@ export const RubricScoring: React.FC<RubricScoringProps> = ({
         .eq('id', response.id);
 
       if (responseError) throw responseError;
+      
+      await ActivityLog.log('grade_response', 'student_response');
 
       toast.success('Rubric scoring saved successfully!');
       onScoreSubmit(scores, totalScore);

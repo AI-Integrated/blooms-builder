@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { Plus, Minus, Calculator } from "lucide-react"
 import { TOSConfig } from "@/pages/TOS"
+import { TOS } from "@/services/db/tos"
 
 interface TOSFormProps {
   config: TOSConfig
@@ -78,25 +79,21 @@ export function TOSForm({ config, onConfigChange, onGenerate }: TOSFormProps) {
       const { supabase } = await import('@/integrations/supabase/client')
       
       // Save TOS entry
-      const { data: tosEntry, error: tosError } = await supabase
-        .from('tos_entries')
-        .insert([{
-          title: `${tosConfig.subjectNo} - ${tosConfig.examPeriod} Exam`,
-          subject_no: tosConfig.subjectNo,
-          course: tosConfig.course,
-          description: tosConfig.description,
-          year_section: tosConfig.yearSection,
-          exam_period: tosConfig.examPeriod,
-          school_year: tosConfig.schoolYear,
-          total_items: tosConfig.totalItems,
-          prepared_by: tosConfig.preparedBy,
-          noted_by: tosConfig.notedBy,
-          created_by: 'teacher'
-        }])
-        .select()
-        .single()
+      const tosData = {
+        title: `${tosConfig.subjectNo} - ${tosConfig.examPeriod} Exam`,
+        subject_no: tosConfig.subjectNo,
+        course: tosConfig.course,
+        description: tosConfig.description,
+        year_section: tosConfig.yearSection,
+        exam_period: tosConfig.examPeriod,
+        school_year: tosConfig.schoolYear,
+        total_items: tosConfig.totalItems,
+        prepared_by: tosConfig.preparedBy,
+        noted_by: tosConfig.notedBy,
+        created_by: 'teacher'
+      };
 
-      if (tosError) throw tosError
+      const tosEntry = await TOS.create(tosData);
 
       // Calculate and save learning competencies
       const totalHours = tosConfig.topics.reduce((sum, topic) => sum + topic.hours, 0)
@@ -134,24 +131,24 @@ export function TOSForm({ config, onConfigChange, onGenerate }: TOSFormProps) {
 
         currentItemNumber += topicItems
 
-        const { error: competencyError } = await supabase
-          .from('learning_competencies')
-          .insert([{
-            tos_id: tosEntry.id,
-            topic_name: topic.name,
-            hours: topic.hours,
-            percentage: topicPercentage,
-            remembering_items: bloomDistribution.remembering,
-            understanding_items: bloomDistribution.understanding,
-            applying_items: bloomDistribution.applying,
-            analyzing_items: bloomDistribution.analyzing,
-            evaluating_items: bloomDistribution.evaluating,
-            creating_items: bloomDistribution.creating,
-            total_items: topicItems,
-            item_numbers: itemNumbers
-          }])
+        const competencyData = {
+          tos_id: tosEntry.id,
+          topic_name: topic.name,
+          hours: topic.hours,
+          percentage: topicPercentage,
+          remembering_items: bloomDistribution.remembering,
+          understanding_items: bloomDistribution.understanding,
+          applying_items: bloomDistribution.applying,
+          analyzing_items: bloomDistribution.analyzing,
+          evaluating_items: bloomDistribution.evaluating,
+          creating_items: bloomDistribution.creating,
+          total_items: topicItems,
+          item_numbers: itemNumbers
+        };
+        
+        await TOS.createLearningCompetencies([competencyData]);
 
-        if (competencyError) throw competencyError
+        
       }
 
       console.log('TOS saved to Supabase successfully')
