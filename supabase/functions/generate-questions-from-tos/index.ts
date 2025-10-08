@@ -231,8 +231,9 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Generation error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: `Question generation failed: ${error.message}` }),
+      JSON.stringify({ error: `Question generation failed: ${message}` }),
       {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" }

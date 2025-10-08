@@ -139,8 +139,9 @@ Return a JSON object with a "classifications" array containing objects in this e
 
   } catch (error) {
     console.error('Unexpected error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: 'An unexpected error occurred', details: error.message }),
+      JSON.stringify({ error: 'An unexpected error occurred', details: message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

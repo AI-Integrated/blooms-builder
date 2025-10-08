@@ -8,3 +8,15 @@ verify_jwt = true
 
 [functions.rubric-scores]
 verify_jwt = true
+
+[functions.semantic-similarity]
+verify_jwt = true
+
+[functions.validation-workflow]
+verify_jwt = true
+
+[functions.enhanced-classify]
+verify_jwt = false
+
+[functions.ml-model-retraining]
+verify_jwt = false

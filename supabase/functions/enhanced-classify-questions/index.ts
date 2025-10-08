@@ -207,30 +207,101 @@ serve(async (req) => {
   }
 
   try {
-    const { questions, options = {} } = await req.json();
+    const { questions, options = {}, saveToDatabase = false } = await req.json();
     
     if (!Array.isArray(questions)) {
       throw new Error('Expected array of questions');
     }
 
-    const results: EnhancedClassificationOutput[] = questions.map((question: EnhancedClassificationInput) => {
-      return enhancedClassifyQuestion(question, options);
-    });
-
-    // If similarity checking is enabled, we would check against existing questions here
-    if (options.check_similarity) {
-      // This would require database access to compare against existing questions
-      console.log('Similarity checking requested but not implemented in this demo');
+    // Initialize Supabase client if saving to database
+    let supabaseClient;
+    if (saveToDatabase) {
+      supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      );
     }
 
-    return new Response(JSON.stringify(results), {
+    const results: EnhancedClassificationOutput[] = [];
+
+    for (const question of questions) {
+      const classification = enhancedClassifyQuestion(question, options);
+      results.push(classification);
+
+      // Save to database if enabled
+      if (saveToDatabase && supabaseClient && question.id) {
+        const autoApproveThreshold = options.autoApproveThreshold || 0.85;
+        const autoApprove = classification.confidence >= autoApproveThreshold && !classification.needs_review;
+
+        // Update question with classification
+        const { error: updateError } = await supabaseClient
+          .from('questions')
+          .update({
+            bloom_level: classification.bloom_level,
+            difficulty: classification.difficulty,
+            knowledge_dimension: classification.knowledge_dimension,
+            classification_confidence: classification.confidence,
+            semantic_vector: JSON.stringify(classification.semantic_vector),
+            quality_score: classification.quality_score,
+            readability_score: classification.readability_score,
+            validation_status: autoApprove ? 'validated' : 'pending',
+            needs_review: classification.needs_review,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', question.id);
+
+        if (updateError) {
+          console.error('Error updating question:', updateError);
+        }
+
+        // If similarity checking is enabled, calculate and store similarities
+        if (options.check_similarity && question.topic) {
+          const { data: similarQuestions, error: similarError } = await supabaseClient
+            .from('questions')
+            .select('id, question_text')
+            .eq('topic', question.topic)
+            .neq('id', question.id)
+            .limit(50);
+
+          if (!similarError && similarQuestions) {
+            for (const simQuestion of similarQuestions) {
+              const similarity = calculateSimilarity(
+                question.text,
+                simQuestion.question_text
+              );
+
+              if (similarity >= (options.similarityThreshold || 0.7)) {
+                await supabaseClient
+                  .from('question_similarities')
+                  .upsert({
+                    question1_id: question.id,
+                    question2_id: simQuestion.id,
+                    similarity_score: similarity,
+                    algorithm_used: 'cosine',
+                    calculated_at: new Date().toISOString()
+                  }, {
+                    onConflict: 'question1_id,question2_id'
+                  });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return new Response(JSON.stringify({
+      results,
+      savedToDatabase: saveToDatabase,
+      autoApprovedCount: results.filter(r => r.confidence >= 0.85 && !r.needs_review).length
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
 
   } catch (error) {
     console.error('Enhanced classification error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: `Enhanced classification failed: ${error.message}` }), 
+      JSON.stringify({ error: `Enhanced classification failed: ${message}` }), 
       { 
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -238,3 +309,22 @@ serve(async (req) => {
     );
   }
 });
+
+// Helper function to calculate text similarity
+function calculateSimilarity(text1: string, text2: string): number {
+  const vec1 = generateSemanticVector(text1);
+  const vec2 = generateSemanticVector(text2);
+  
+  // Cosine similarity
+  let dotProduct = 0;
+  let mag1 = 0;
+  let mag2 = 0;
+  
+  for (let i = 0; i < vec1.length; i++) {
+    dotProduct += vec1[i] * vec2[i];
+    mag1 += vec1[i] * vec1[i];
+    mag2 += vec2[i] * vec2[i];
+  }
+  
+  return dotProduct / (Math.sqrt(mag1) * Math.sqrt(mag2)) || 0;
+}

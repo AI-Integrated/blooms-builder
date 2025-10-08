@@ -29,17 +29,8 @@ Deno.serve(async (req) => {
     const url = new URL(req.url)
     console.log(`${req.method} ${url.pathname}`)
 
-    // Get authorization header
+    // Get authorization header for user context
     const authHeader = req.headers.get('Authorization')
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Authorization header required' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Set auth context
-    supabase.auth.setAuth(authHeader.replace('Bearer ', ''))
 
     switch (req.method) {
       case 'GET': {

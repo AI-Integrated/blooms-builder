@@ -279,8 +279,9 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Classification error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: `Classification failed: ${error.message}` }), 
+      JSON.stringify({ error: `Classification failed: ${message}` }), 
       { 
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" }

@@ -1,0 +1,13 @@
+-- Add missing columns to generated_tests table
+ALTER TABLE generated_tests
+ADD COLUMN IF NOT EXISTS title TEXT,
+ADD COLUMN IF NOT EXISTS subject TEXT,
+ADD COLUMN IF NOT EXISTS course TEXT,
+ADD COLUMN IF NOT EXISTS year_section TEXT,
+ADD COLUMN IF NOT EXISTS exam_period TEXT,
+ADD COLUMN IF NOT EXISTS school_year TEXT,
+ADD COLUMN IF NOT EXISTS time_limit INTEGER,
+ADD COLUMN IF NOT EXISTS points_per_question INTEGER,
+ADD COLUMN IF NOT EXISTS shuffle_questions BOOLEAN DEFAULT true,
+ADD COLUMN IF NOT EXISTS shuffle_choices BOOLEAN DEFAULT true,
+ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'teacher';
