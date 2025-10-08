@@ -295,3 +295,17 @@ export class SemanticAnalyzer {
 }
 
 export const semanticAnalyzer = SemanticAnalyzer.getInstance();
+
+// Export convenience function for direct use
+export function calculateCosineSimilarity(text1: string, text2: string, vector1?: string, vector2?: string): number {
+  const analyzer = SemanticAnalyzer.getInstance();
+  
+  // Simple word overlap similarity if no vectors provided
+  const words1 = new Set(text1.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const words2 = new Set(text2.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  
+  const intersection = new Set([...words1].filter(x => words2.has(x)));
+  const union = new Set([...words1, ...words2]);
+  
+  return union.size > 0 ? intersection.size / union.size : 0;
+}
