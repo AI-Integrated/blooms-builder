@@ -3,6 +3,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { addWatermarkToPDF, generateWatermarkCode, logSecurityEvent } from '@/services/testGeneration/security';
 
 export const usePDFExport = () => {
   const uploadToStorage = useCallback(async (blob: Blob, filename: string, folder: string) => {
@@ -123,7 +124,15 @@ export const usePDFExport = () => {
     }
   }, [uploadToStorage]);
 
-  const exportTestQuestions = useCallback(async (questions: any[], testTitle: string, uploadToCloud: boolean = false, versionLabel?: string) => {
+  const exportTestQuestions = useCallback(async (
+    questions: any[], 
+    testTitle: string, 
+    uploadToCloud: boolean = false, 
+    versionLabel?: string,
+    testId?: string,
+    studentName?: string,
+    studentId?: string
+  ) => {
     try {
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
@@ -137,6 +146,14 @@ export const usePDFExport = () => {
       pdf.setFontSize(16);
       pdf.setFont('helvetica', 'bold');
       pdf.text(testTitle, pageWidth / 2, yPosition, { align: 'center' });
+      
+      // Add version label if provided
+      if (versionLabel) {
+        pdf.setFontSize(12);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(`Version ${versionLabel}`, pageWidth / 2, yPosition + 7, { align: 'center' });
+      }
+      
       yPosition += lineHeight * 2;
 
       // Add instructions
@@ -211,7 +228,32 @@ export const usePDFExport = () => {
         yPosition += lineHeight;
       });
 
-      const filename = `${testTitle.toLowerCase().replace(/\s+/g, '-')}${versionLabel ? `-version-${versionLabel}` : ''}.pdf`;
+      // Add watermarks if version label and test ID are provided
+      if (versionLabel && testId) {
+        const watermarkCode = generateWatermarkCode(testId, versionLabel, studentId);
+        const totalPages = pdf.getNumberOfPages();
+        const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+        
+        addWatermarkToPDF(pdf, {
+          testId,
+          versionLabel,
+          studentName,
+          studentId,
+          uniqueCode: watermarkCode,
+          timestamp: new Date()
+        }, pages);
+        
+        // Log security event
+        await logSecurityEvent('export', testId, {
+          version_label: versionLabel,
+          student_id: studentId,
+          student_name: studentName,
+          watermark_code: watermarkCode,
+          exported_at: new Date().toISOString()
+        });
+      }
+
+      const filename = `${testTitle.toLowerCase().replace(/\s+/g, '-')}${versionLabel ? `-version-${versionLabel}` : ''}${studentName ? `-${studentName.toLowerCase().replace(/\s+/g, '-')}` : ''}.pdf`;
       const blob = pdf.output('blob');
       
       // Upload to storage if requested
