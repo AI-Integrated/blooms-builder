@@ -286,13 +286,15 @@ export function TestGenerator({ tosData, onTestGenerated, onCancel }: TestGenera
       await supabase
         .from('generated_tests')
         .insert({
+          title: `${tosData.description} - ${tosData.examPeriod} Exam`,
+          subject: tosData.course || 'General',
           instructions: `${tosData.description} - ${tosData.examPeriod} Exam`,
-          version_label: 'A',
-          items: JSON.stringify(questions) as any,
+          items: questions as any,
           answer_key: JSON.stringify(questions.reduce((acc, q) => {
             acc[q.id] = q.correctAnswer || q.question
             return acc
-          }, {} as Record<number, any>)) as any
+          }, {} as Record<number, any>)) as any,
+          created_by: 'teacher'
         })
     } catch (error) {
       console.error('Error saving generated test:', error)
