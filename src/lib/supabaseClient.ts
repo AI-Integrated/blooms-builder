@@ -185,9 +185,10 @@ export async function saveGeneratedTest(test: {
 
   const testData = {
     tos_id: test.tos_id,
-    instructions: test.title || 'Read each question carefully and select the best answer.',
-    version_label: 'A',
-    items: test.versions || [],
+    title: test.title || 'Generated Test',
+    subject: 'General',
+    instructions: 'Read each question carefully and select the best answer.',
+    items: test.items || test.versions || [],
     answer_key: test.answer_key || {}
   };
 
