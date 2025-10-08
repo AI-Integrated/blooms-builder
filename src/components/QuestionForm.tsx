@@ -7,10 +7,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Trash2, Save, Target, FileText, Sparkles, Brain } from 'lucide-react';
 import { Questions } from '@/services/db/questions';
 import { EdgeFunctions } from '@/services/edgeFunctions';
 import { classifyQuestion } from '@/services/ai/classify';
+import { TaxonomyMatrixSelector } from '@/components/classification/TaxonomyMatrixSelector';
 import { toast } from 'sonner';
 
 interface QuestionFormProps {
@@ -244,13 +246,13 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
           </div>
         </div>
 
-        {/* AI Classification Section */}
+        {/* Taxonomy Classification Section */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold">AI Classification</h3>
+              <h3 className="text-lg font-semibold">Educational Classification</h3>
               <p className="text-sm text-muted-foreground">
-                Let AI automatically classify this question's educational attributes
+                Classify using AI, matrix selector, or manual dropdowns
               </p>
             </div>
             <Button 
@@ -282,31 +284,72 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
               </span>
             </div>
           )}
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Tabs defaultValue="matrix" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="matrix">Matrix Selector</TabsTrigger>
+              <TabsTrigger value="manual">Manual Selection</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="matrix" className="mt-4">
+              <TaxonomyMatrixSelector
+                selectedBloom={formData.bloom_level}
+                selectedKnowledge={formData.knowledge_dimension}
+                onSelect={(bloom, knowledge) => {
+                  setFormData(prev => ({
+                    ...prev,
+                    bloom_level: bloom,
+                    knowledge_dimension: knowledge
+                  }));
+                }}
+              />
+            </TabsContent>
+            
+            <TabsContent value="manual" className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="bloomLevel">Bloom's Cognitive Level</Label>
+                  <Select 
+                    value={formData.bloom_level} 
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, bloom_level: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="remembering">Remembering</SelectItem>
+                      <SelectItem value="understanding">Understanding</SelectItem>
+                      <SelectItem value="applying">Applying</SelectItem>
+                      <SelectItem value="analyzing">Analyzing</SelectItem>
+                      <SelectItem value="evaluating">Evaluating</SelectItem>
+                      <SelectItem value="creating">Creating</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="knowledgeDimension">Knowledge Dimension</Label>
+                  <Select 
+                    value={formData.knowledge_dimension} 
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, knowledge_dimension: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="factual">Factual</SelectItem>
+                      <SelectItem value="conceptual">Conceptual</SelectItem>
+                      <SelectItem value="procedural">Procedural</SelectItem>
+                      <SelectItem value="metacognitive">Metacognitive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+
           <div>
-            <Label htmlFor="bloomLevel">Bloom's Level</Label>
-            <Select 
-              value={formData.bloom_level} 
-              onValueChange={(value) => setFormData(prev => ({ ...prev, bloom_level: value }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="remembering">Remembering</SelectItem>
-                <SelectItem value="understanding">Understanding</SelectItem>
-                <SelectItem value="applying">Applying</SelectItem>
-                <SelectItem value="analyzing">Analyzing</SelectItem>
-                <SelectItem value="evaluating">Evaluating</SelectItem>
-                <SelectItem value="creating">Creating</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div>
-            <Label htmlFor="difficulty">Difficulty</Label>
+            <Label htmlFor="difficulty">Difficulty Level</Label>
             <Select 
               value={formData.difficulty} 
               onValueChange={(value) => setFormData(prev => ({ ...prev, difficulty: value }))}
@@ -318,24 +361,6 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
                 <SelectItem value="easy">Easy</SelectItem>
                 <SelectItem value="average">Average</SelectItem>
                 <SelectItem value="difficult">Difficult</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label htmlFor="knowledgeDimension">Knowledge Dimension</Label>
-            <Select 
-              value={formData.knowledge_dimension} 
-              onValueChange={(value) => setFormData(prev => ({ ...prev, knowledge_dimension: value }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="factual">Factual</SelectItem>
-                <SelectItem value="conceptual">Conceptual</SelectItem>
-                <SelectItem value="procedural">Procedural</SelectItem>
-                <SelectItem value="metacognitive">Metacognitive</SelectItem>
               </SelectContent>
             </Select>
           </div>
