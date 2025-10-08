@@ -4,9 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Shuffle, Download } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { ArrowLeft, Shuffle, Download, Eye, FileText } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { generateMultipleVersions, validateVersionBalance } from '@/services/testGeneration/multiVersionGenerator';
+import TestDistribution from '@/components/testGeneration/TestDistribution';
 import type { Json } from '@/integrations/supabase/types';
 
 interface Question {
@@ -31,71 +34,84 @@ interface MultiVersionTestGeneratorProps {
 }
 
 export default function MultiVersionTestGenerator({ onBack }: MultiVersionTestGeneratorProps) {
-  const [versions, setVersions] = useState<TestVersion[]>([]);
+  const [versions, setVersions] = useState<any[]>([]);
   const [numberOfVersions, setNumberOfVersions] = useState(3);
   const [questionsPerVersion, setQuestionsPerVersion] = useState(20);
+  const [shuffleQuestions, setShuffleQuestions] = useState(true);
+  const [shuffleChoices, setShuffleChoices] = useState(true);
+  const [preventDuplicates, setPreventDuplicates] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [savedTestId, setSavedTestId] = useState<string | null>(null);
+  const [versionIds, setVersionIds] = useState<string[]>([]);
+  const [showDistribution, setShowDistribution] = useState(false);
+  const [balanceMetrics, setBalanceMetrics] = useState<any>(null);
   const { toast } = useToast();
-
-  const shuffleArray = <T,>(array: T[]): T[] => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  };
 
   const generateVersions = async () => {
     setLoading(true);
     try {
-      // Fetch approved questions
       const { data: questions, error } = await supabase
         .from('questions')
         .select('*')
-        .or('approved.eq.true,created_by.eq.teacher')
-        .limit(questionsPerVersion * numberOfVersions * 2); // Get more than needed
+        .eq('approved', true)
+        .limit(questionsPerVersion);
 
       if (error) throw error;
 
       if (!questions || questions.length < questionsPerVersion) {
         toast({
           title: "Insufficient Questions",
-          description: `Need at least ${questionsPerVersion} approved questions to generate versions.`,
+          description: `Need at least ${questionsPerVersion} approved questions.`,
           variant: "destructive",
         });
         return;
       }
 
-      const generatedVersions: TestVersion[] = [];
+      const generatedVersions = await generateMultipleVersions(questions as any, {
+        numberOfVersions,
+        shuffleQuestions,
+        shuffleChoices,
+        preventAdjacentDuplicates: preventDuplicates,
+        balanceDistributions: true
+      });
+
+      const balance = validateVersionBalance(generatedVersions);
+      setBalanceMetrics(balance);
+
+      const savedVersionIds: string[] = [];
+      const firstVersionId = crypto.randomUUID();
       
-      for (let i = 0; i < numberOfVersions; i++) {
-        const versionLabel = String.fromCharCode(65 + i); // A, B, C, etc.
-        
-        // Select random questions for this version
-        const shuffledQuestions = shuffleArray(questions);
-        const selectedQuestions = shuffledQuestions.slice(0, questionsPerVersion);
-        
-        // Shuffle the order of questions for this version
-        const versionQuestions = shuffleArray(selectedQuestions as Question[]);
+      for (const version of generatedVersions) {
+        const { data, error: insertError } = await supabase
+          .from('generated_tests')
+          .insert({
+            id: version.version_number === 1 ? firstVersionId : undefined,
+            parent_test_id: version.version_number === 1 ? null : firstVersionId,
+            title: `Multi-Version Test`,
+            subject: 'Generated Test',
+            items: version.questions as any,
+            answer_key: version.answer_key as any,
+            version_label: version.version_label,
+            version_number: version.version_number,
+            shuffle_seed: version.shuffle_seed,
+            question_order: version.question_order as any,
+            shuffle_questions: shuffleQuestions,
+            shuffle_choices: shuffleChoices
+          })
+          .select('id')
+          .single();
 
-        const answerKey: Record<string, string> = {};
-        versionQuestions.forEach((q, index) => {
-          answerKey[`${index + 1}`] = q.correct_answer || '';
-        });
-
-        generatedVersions.push({
-          version: versionLabel,
-          questions: versionQuestions,
-          answerKey
-        });
+        if (insertError) throw insertError;
+        if (data) savedVersionIds.push(data.id);
       }
 
       setVersions(generatedVersions);
+      setSavedTestId(firstVersionId);
+      setVersionIds(savedVersionIds);
       
       toast({
         title: "Versions Generated",
-        description: `Successfully generated ${numberOfVersions} test versions.`,
+        description: `Successfully generated ${numberOfVersions} balanced test versions.`,
       });
     } catch (error) {
       console.error('Error generating versions:', error);
@@ -109,33 +125,6 @@ export default function MultiVersionTestGenerator({ onBack }: MultiVersionTestGe
     }
   };
 
-  const exportVersion = async (version: TestVersion) => {
-    try {
-      // Save version to database
-      const { error } = await supabase
-        .from('generated_tests')
-        .insert({
-          version_label: version.version,
-          items: version.questions as unknown as Json,
-          answer_key: version.answerKey as unknown as Json,
-          instructions: `Test Version ${version.version}`
-        });
-
-      if (error) throw error;
-
-      toast({
-        title: "Version Exported",
-        description: `Test Version ${version.version} has been saved.`,
-      });
-    } catch (error) {
-      console.error('Error exporting version:', error);
-      toast({
-        title: "Error",
-        description: "Failed to export test version.",
-        variant: "destructive",
-      });
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -180,37 +169,95 @@ export default function MultiVersionTestGenerator({ onBack }: MultiVersionTestGe
               />
             </div>
           </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="shuffle-questions">Shuffle Question Order</Label>
+              <Switch
+                id="shuffle-questions"
+                checked={shuffleQuestions}
+                onCheckedChange={setShuffleQuestions}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="shuffle-choices">Shuffle Answer Choices</Label>
+              <Switch
+                id="shuffle-choices"
+                checked={shuffleChoices}
+                onCheckedChange={setShuffleChoices}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="prevent-duplicates">Prevent Adjacent Duplicates</Label>
+              <Switch
+                id="prevent-duplicates"
+                checked={preventDuplicates}
+                onCheckedChange={setPreventDuplicates}
+              />
+            </div>
+          </div>
           
-          <Button onClick={generateVersions} disabled={loading} className="gap-2">
+          <Button onClick={generateVersions} disabled={loading} className="w-full gap-2">
             <Shuffle className="w-4 h-4" />
             {loading ? 'Generating...' : 'Generate Versions'}
           </Button>
         </CardContent>
       </Card>
 
-      {versions.length > 0 && (
+      {balanceMetrics && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Version Balance Metrics</CardTitle>
+            <CardDescription>Distribution analysis across all versions</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {balanceMetrics.isBalanced ? (
+              <div className="flex items-center gap-2 text-green-600">
+                <Badge variant="outline" className="border-green-600">Balanced</Badge>
+                <span className="text-sm">All versions maintain balanced distributions</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Badge variant="outline" className="border-yellow-600">Warnings Detected</Badge>
+                {balanceMetrics.warnings.map((warning: string, i: number) => (
+                  <p key={i} className="text-sm text-yellow-600">{warning}</p>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {versions.length > 0 && !showDistribution && (
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Generated Versions</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Generated Versions</h2>
+            <Button onClick={() => setShowDistribution(true)} variant="outline" className="gap-2">
+              <FileText className="w-4 h-4" />
+              Distribute to Students
+            </Button>
+          </div>
           
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {versions.map((version) => (
-              <Card key={version.version}>
+            {versions.map((version: any) => (
+              <Card key={version.version_label}>
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
-                    Version {version.version}
+                    Version {version.version_label}
                     <Badge variant="secondary">{version.questions.length} questions</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-sm text-muted-foreground">
                     <p>Questions: {version.questions.length}</p>
-                    <p>Topics covered: {new Set(version.questions.map(q => q.topic)).size}</p>
+                    <p>Topics covered: {new Set(version.questions.map((q: any) => q.topic)).size}</p>
+                    <p className="font-mono text-xs mt-2">Seed: {version.shuffle_seed.substring(0, 12)}...</p>
                   </div>
                   
                   <div className="space-y-2">
                     <h4 className="text-sm font-medium">Sample Questions:</h4>
                     <div className="space-y-1 text-xs">
-                      {version.questions.slice(0, 3).map((q, index) => (
+                      {version.questions.slice(0, 3).map((q: any, index: number) => (
                         <div key={index} className="truncate">
                           {index + 1}. {q.question_text}
                         </div>
@@ -223,19 +270,34 @@ export default function MultiVersionTestGenerator({ onBack }: MultiVersionTestGe
                     </div>
                   </div>
                   
-                  <Button 
-                    size="sm" 
-                    onClick={() => exportVersion(version)}
-                    className="w-full gap-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    Export Version {version.version}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="flex-1 gap-2">
+                      <Eye className="w-4 h-4" />
+                      Preview
+                    </Button>
+                    <Button size="sm" className="flex-1 gap-2">
+                      <Download className="w-4 h-4" />
+                      Export
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
           </div>
         </div>
+      )}
+
+      {showDistribution && savedTestId && versionIds.length > 0 && (
+        <TestDistribution
+          parentTestId={savedTestId}
+          versionIds={versionIds}
+          onComplete={() => {
+            toast({
+              title: "Distribution Complete",
+              description: "Test versions have been assigned to students"
+            });
+          }}
+        />
       )}
     </div>
   );
