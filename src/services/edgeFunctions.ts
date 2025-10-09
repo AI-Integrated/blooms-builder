@@ -7,7 +7,8 @@ export interface ClassificationInput {
 }
 
 export interface ClassificationOutput {
-  bloom_level: string;
+  cognitive_level: string; // Primary field
+  bloom_level: string; // Deprecated, kept for backward compatibility
   difficulty: string;
   knowledge_dimension: string;
   confidence: number;

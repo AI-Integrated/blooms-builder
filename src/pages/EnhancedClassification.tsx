@@ -179,7 +179,12 @@ export default function EnhancedClassification() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <TaxonomyMatrix />
+              <TaxonomyMatrix 
+                questions={[]} 
+                onCellClick={(cogLevel, knowDim) => {
+                  console.log('Matrix cell clicked:', cogLevel, knowDim);
+                }}
+              />
             </CardContent>
           </Card>
         </TabsContent>

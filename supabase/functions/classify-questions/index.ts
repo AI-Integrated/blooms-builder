@@ -14,7 +14,8 @@ type ClassificationInput = {
 };
 
 type ClassificationOutput = {
-  bloom_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating';
+  cognitive_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating';
+  bloom_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating'; // Deprecated
   difficulty: 'easy' | 'average' | 'difficult';
   knowledge_dimension: 'factual' | 'conceptual' | 'procedural' | 'metacognitive';
   confidence: number;           // 0..1
@@ -262,7 +263,8 @@ serve(async (req) => {
       const needs_review = confidence < 0.7; // Flag for manual review if confidence is low
 
       return {
-        bloom_level,
+        cognitive_level: bloom_level, // Use cognitive_level as primary
+        bloom_level, // Keep for backward compatibility
         difficulty,
         knowledge_dimension,
         confidence: Math.round(confidence * 100) / 100, // Round to 2 decimal places

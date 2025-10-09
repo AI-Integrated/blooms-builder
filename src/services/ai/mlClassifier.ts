@@ -1,7 +1,8 @@
 import { supabase } from '@/integrations/supabase/client';
 
 export interface MLClassificationResult {
-  bloom_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating';
+  cognitive_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating';
+  bloom_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating'; // Deprecated, use cognitive_level
   knowledge_dimension: 'factual' | 'conceptual' | 'procedural' | 'metacognitive';
   difficulty: 'easy' | 'average' | 'difficult';
   confidence: number;
@@ -99,7 +100,8 @@ export class MLClassifier {
     ]);
 
     return {
-      bloom_level: bloomResult.level,
+      cognitive_level: bloomResult.level,
+      bloom_level: bloomResult.level, // Backward compatibility
       knowledge_dimension: knowledgeResult.dimension,
       difficulty: difficultyResult.level,
       confidence: overallConfidence,

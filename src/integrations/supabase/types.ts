@@ -84,8 +84,10 @@ export type Database = {
       }
       classification_validations: {
         Row: {
+          cognitive_level: string | null
           created_at: string | null
           id: string
+          knowledge_dimension: string | null
           notes: string | null
           original_classification: Json
           question_id: string | null
@@ -95,8 +97,10 @@ export type Database = {
           validator_id: string | null
         }
         Insert: {
+          cognitive_level?: string | null
           created_at?: string | null
           id?: string
+          knowledge_dimension?: string | null
           notes?: string | null
           original_classification: Json
           question_id?: string | null
@@ -106,8 +110,10 @@ export type Database = {
           validator_id?: string | null
         }
         Update: {
+          cognitive_level?: string | null
           created_at?: string | null
           id?: string
+          knowledge_dimension?: string | null
           notes?: string | null
           original_classification?: Json
           question_id?: string | null
@@ -911,6 +917,7 @@ export type Database = {
           bloom_level: string
           choices: Json | null
           classification_confidence: number | null
+          cognitive_level: string | null
           correct_answer: string | null
           created_at: string | null
           created_by: string
@@ -945,6 +952,7 @@ export type Database = {
           bloom_level: string
           choices?: Json | null
           classification_confidence?: number | null
+          cognitive_level?: string | null
           correct_answer?: string | null
           created_at?: string | null
           created_by?: string
@@ -979,6 +987,7 @@ export type Database = {
           bloom_level?: string
           choices?: Json | null
           classification_confidence?: number | null
+          cognitive_level?: string | null
           correct_answer?: string | null
           created_at?: string | null
           created_by?: string

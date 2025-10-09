@@ -190,5 +190,32 @@ export const Questions = {
 
     if (error) throw error;
     return data;
+  },
+
+  async updateClassification(
+    questionId: string, 
+    classification: {
+      cognitive_level?: string;
+      knowledge_dimension?: string;
+      confidence?: number;
+      semantic_vector?: string;
+    }
+  ): Promise<Question> {
+    const { data, error } = await supabase
+      .from('questions')
+      .update({
+        cognitive_level: classification.cognitive_level,
+        bloom_level: classification.cognitive_level, // Keep in sync
+        knowledge_dimension: classification.knowledge_dimension,
+        classification_confidence: classification.confidence,
+        semantic_vector: classification.semantic_vector,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', questionId)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    return data;
   }
 };

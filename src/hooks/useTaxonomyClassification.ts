@@ -12,6 +12,8 @@ export interface ClassificationState {
   loading: boolean;
   error: string | null;
   matrix: TaxonomyMatrix | null;
+  cognitiveLevel: string | null;
+  knowledgeDimension: string | null;
 }
 
 export interface UseTaxonomyClassificationOptions {
@@ -34,7 +36,9 @@ export function useTaxonomyClassification(options: UseTaxonomyClassificationOpti
     confidence: null,
     loading: false,
     error: null,
-    matrix: null
+    matrix: null,
+    cognitiveLevel: null,
+    knowledgeDimension: null
   });
 
   const classifyQuestion = useCallback(async (input: QuestionInput): Promise<MLClassificationResult | null> => {
@@ -58,13 +62,14 @@ export function useTaxonomyClassification(options: UseTaxonomyClassificationOpti
           );
           
           result = {
+            cognitive_level: edgeResult.cognitive_level as any || edgeResult.bloom_level as any,
             bloom_level: edgeResult.bloom_level as any,
             knowledge_dimension: edgeResult.knowledge_dimension as any,
             difficulty: edgeResult.difficulty as any,
             confidence: edgeResult.confidence,
-            quality_score: 0.7, // Default quality score
-            readability_score: 8.0, // Default readability
-            semantic_vector: [], // Empty vector for fallback
+            quality_score: 0.7,
+            readability_score: 8.0,
+            semantic_vector: [],
             needs_review: edgeResult.needs_review
           };
         }
@@ -77,6 +82,7 @@ export function useTaxonomyClassification(options: UseTaxonomyClassificationOpti
         );
         
         result = {
+          cognitive_level: edgeResult.cognitive_level as any || edgeResult.bloom_level as any,
           bloom_level: edgeResult.bloom_level as any,
           knowledge_dimension: edgeResult.knowledge_dimension as any,
           difficulty: edgeResult.difficulty as any,
@@ -101,6 +107,8 @@ export function useTaxonomyClassification(options: UseTaxonomyClassificationOpti
         ...prev,
         result,
         confidence: confidenceAnalysis,
+        cognitiveLevel: result.cognitive_level,
+        knowledgeDimension: result.knowledge_dimension,
         loading: false
       }));
 
@@ -190,8 +198,10 @@ export function useTaxonomyClassification(options: UseTaxonomyClassificationOpti
       });
 
       // Update question with validated classification
+      const cognitiveLevel = validatedClassification.cognitive_level || validatedClassification.bloom_level || originalClassification.cognitive_level;
       await supabase.from('questions').update({
-        bloom_level: validatedClassification.bloom_level || originalClassification.bloom_level,
+        cognitive_level: cognitiveLevel,
+        bloom_level: cognitiveLevel, // Keep in sync
         knowledge_dimension: validatedClassification.knowledge_dimension || originalClassification.knowledge_dimension,
         difficulty: validatedClassification.difficulty || originalClassification.difficulty,
         validation_status: 'validated',
