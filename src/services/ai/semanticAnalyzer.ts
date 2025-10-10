@@ -1,11 +1,24 @@
+/**
+ * Semantic Similarity Analysis Service
+ * Uses OpenAI embeddings to detect similar and duplicate questions
+ */
+
 import { supabase } from '@/integrations/supabase/client';
 
+export interface SimilarQuestion {
+  id: string;
+  question_text: string;
+  topic: string;
+  similarity_score: number;
+  bloom_level?: string;
+  difficulty?: string;
+}
+
 export interface SimilarityResult {
-  questionId1: string;
-  questionId2: string;
-  similarity: number;
-  algorithm: 'cosine' | 'jaccard' | 'semantic';
-  confidence: number;
+  question_id: string;
+  similar_questions: SimilarQuestion[];
+  has_duplicates: boolean;
+  highest_similarity: number;
 }
 
 export interface ClusterResult {
@@ -16,290 +29,322 @@ export interface ClusterResult {
   topic: string;
 }
 
-export class SemanticAnalyzer {
-  private static instance: SemanticAnalyzer;
-  private vectorCache: Map<string, number[]> = new Map();
-
-  static getInstance(): SemanticAnalyzer {
-    if (!SemanticAnalyzer.instance) {
-      SemanticAnalyzer.instance = new SemanticAnalyzer();
-    }
-    return SemanticAnalyzer.instance;
-  }
-
-  async calculateSimilarity(text1: string, text2: string, algorithm: 'cosine' | 'jaccard' | 'semantic' = 'semantic'): Promise<number> {
-    switch (algorithm) {
-      case 'cosine':
-        return this.cosineSimilarity(text1, text2);
-      case 'jaccard':
-        return this.jaccardSimilarity(text1, text2);
-      case 'semantic':
-        return this.semanticSimilarity(text1, text2);
-      default:
-        return this.semanticSimilarity(text1, text2);
-    }
-  }
-
-  private async cosineSimilarity(text1: string, text2: string): Promise<number> {
-    const vector1 = await this.getTextVector(text1);
-    const vector2 = await this.getTextVector(text2);
-    
-    const dotProduct = vector1.reduce((sum, val, i) => sum + val * vector2[i], 0);
-    const magnitude1 = Math.sqrt(vector1.reduce((sum, val) => sum + val * val, 0));
-    const magnitude2 = Math.sqrt(vector2.reduce((sum, val) => sum + val * val, 0));
-    
-    if (magnitude1 === 0 || magnitude2 === 0) return 0;
-    return dotProduct / (magnitude1 * magnitude2);
-  }
-
-  private jaccardSimilarity(text1: string, text2: string): number {
-    const words1 = new Set(this.tokenize(text1));
-    const words2 = new Set(this.tokenize(text2));
-    
-    const intersection = new Set([...words1].filter(x => words2.has(x)));
-    const union = new Set([...words1, ...words2]);
-    
-    return intersection.size / union.size;
-  }
-
-  private async semanticSimilarity(text1: string, text2: string): Promise<number> {
-    // Combine multiple similarity measures for better accuracy
-    const cosine = await this.cosineSimilarity(text1, text2);
-    const jaccard = this.jaccardSimilarity(text1, text2);
-    const conceptual = this.conceptualSimilarity(text1, text2);
-    
-    // Weighted combination
-    return (cosine * 0.5) + (jaccard * 0.3) + (conceptual * 0.2);
-  }
-
-  private conceptualSimilarity(text1: string, text2: string): number {
-    // Analyze conceptual overlap using educational keywords
-    const educationalConcepts = [
-      'analysis', 'synthesis', 'evaluation', 'application', 'comprehension',
-      'knowledge', 'skill', 'understanding', 'problem', 'solution',
-      'method', 'process', 'system', 'theory', 'principle'
-    ];
-
-    const concepts1 = this.extractConcepts(text1, educationalConcepts);
-    const concepts2 = this.extractConcepts(text2, educationalConcepts);
-    
-    if (concepts1.length === 0 && concepts2.length === 0) return 0;
-    
-    const intersection = concepts1.filter(c => concepts2.includes(c));
-    const union = [...new Set([...concepts1, ...concepts2])];
-    
-    return intersection.length / union.length;
-  }
-
-  private extractConcepts(text: string, concepts: string[]): string[] {
-    const words = this.tokenize(text);
-    return concepts.filter(concept => 
-      words.some(word => word.includes(concept) || concept.includes(word))
-    );
-  }
-
-  private async getTextVector(text: string): Promise<number[]> {
-    const cacheKey = this.hashText(text);
-    
-    if (this.vectorCache.has(cacheKey)) {
-      return this.vectorCache.get(cacheKey)!;
-    }
-
-    const vector = await this.generateTextVector(text);
-    this.vectorCache.set(cacheKey, vector);
-    
-    return vector;
-  }
-
-  private async generateTextVector(text: string): Promise<number[]> {
-    // Simplified TF-IDF-like vectorization
-    const words = this.tokenize(text);
-    const vocabulary = await this.getVocabulary();
-    const vector = new Array(vocabulary.length).fill(0);
-    
-    // Calculate term frequencies
-    const termFreq: Record<string, number> = {};
-    words.forEach(word => {
-      termFreq[word] = (termFreq[word] || 0) + 1;
+/**
+ * Generate embedding for a text using OpenAI API via edge function
+ */
+export async function generateEmbedding(text: string): Promise<number[]> {
+  try {
+    const { data, error } = await supabase.functions.invoke('generate-embedding', {
+      body: { text }
     });
+
+    if (error) throw error;
     
-    // Create vector based on vocabulary
-    vocabulary.forEach((term, index) => {
-      if (termFreq[term]) {
-        vector[index] = termFreq[term] / words.length; // Normalized frequency
-      }
-    });
-    
-    return vector;
-  }
-
-  private async getVocabulary(): Promise<string[]> {
-    // In production, this would be a pre-computed vocabulary from training data
-    return [
-      'define', 'explain', 'analyze', 'evaluate', 'create', 'apply',
-      'system', 'process', 'method', 'theory', 'principle', 'concept',
-      'problem', 'solution', 'approach', 'strategy', 'technique',
-      'data', 'information', 'knowledge', 'skill', 'understanding'
-    ];
-  }
-
-  private tokenize(text: string): string[] {
-    return text.toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(word => word.length > 2)
-      .filter(word => !this.isStopWord(word));
-  }
-
-  private isStopWord(word: string): boolean {
-    const stopWords = new Set([
-      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-      'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-      'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those'
-    ]);
-    return stopWords.has(word);
-  }
-
-  private hashText(text: string): string {
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      const char = text.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return hash.toString();
-  }
-
-  async findSimilarQuestions(questionText: string, threshold: number = 0.7): Promise<SimilarityResult[]> {
-    try {
-      // Get all questions for comparison
-      const { data: questions, error } = await supabase
-        .from('questions')
-        .select('id, question_text')
-        .neq('question_text', questionText);
-
-      if (error) throw error;
-
-      const similarities: SimilarityResult[] = [];
-      
-      for (const question of questions || []) {
-        const similarity = await this.calculateSimilarity(questionText, question.question_text);
-        
-        if (similarity >= threshold) {
-          similarities.push({
-            questionId1: 'current',
-            questionId2: question.id,
-            similarity,
-            algorithm: 'semantic',
-            confidence: 0.8
-          });
-        }
-      }
-      
-      return similarities.sort((a, b) => b.similarity - a.similarity);
-    } catch (error) {
-      console.error('Error finding similar questions:', error);
-      return [];
-    }
-  }
-
-  async clusterQuestions(questions: Array<{ id: string; text: string; topic: string }>): Promise<ClusterResult[]> {
-    const clusters: ClusterResult[] = [];
-    const processed = new Set<string>();
-    
-    for (const question of questions) {
-      if (processed.has(question.id)) continue;
-      
-      const cluster: ClusterResult = {
-        clusterId: `cluster_${clusters.length + 1}`,
-        questions: [question.id],
-        centroid: await this.getTextVector(question.text),
-        coherence: 1.0,
-        topic: question.topic
-      };
-      
-      // Find similar questions for this cluster
-      for (const otherQuestion of questions) {
-        if (otherQuestion.id === question.id || processed.has(otherQuestion.id)) continue;
-        
-        const similarity = await this.calculateSimilarity(question.text, otherQuestion.text);
-        
-        if (similarity >= 0.6) {
-          cluster.questions.push(otherQuestion.id);
-          processed.add(otherQuestion.id);
-        }
-      }
-      
-      // Calculate cluster coherence
-      if (cluster.questions.length > 1) {
-        cluster.coherence = await this.calculateClusterCoherence(cluster.questions, questions);
-      }
-      
-      clusters.push(cluster);
-      processed.add(question.id);
-    }
-    
-    return clusters;
-  }
-
-  private async calculateClusterCoherence(questionIds: string[], allQuestions: Array<{ id: string; text: string }>): Promise<number> {
-    const clusterQuestions = allQuestions.filter(q => questionIds.includes(q.id));
-    let totalSimilarity = 0;
-    let comparisons = 0;
-    
-    for (let i = 0; i < clusterQuestions.length; i++) {
-      for (let j = i + 1; j < clusterQuestions.length; j++) {
-        const similarity = await this.calculateSimilarity(
-          clusterQuestions[i].text,
-          clusterQuestions[j].text
-        );
-        totalSimilarity += similarity;
-        comparisons++;
-      }
-    }
-    
-    return comparisons > 0 ? totalSimilarity / comparisons : 1.0;
-  }
-
-  async detectRedundancy(newQuestion: string, existingQuestions: string[], threshold: number = 0.8): Promise<{
-    isRedundant: boolean;
-    similarQuestions: Array<{ text: string; similarity: number }>;
-    recommendation: string;
-  }> {
-    const similarities = await Promise.all(
-      existingQuestions.map(async (existing) => ({
-        text: existing,
-        similarity: await this.calculateSimilarity(newQuestion, existing)
-      }))
-    );
-    
-    const highSimilarity = similarities.filter(s => s.similarity >= threshold);
-    const isRedundant = highSimilarity.length > 0;
-    
-    let recommendation = '';
-    if (isRedundant) {
-      recommendation = `Question appears similar to ${highSimilarity.length} existing question(s). Consider revising or removing duplicates.`;
-    } else if (similarities.some(s => s.similarity >= 0.5)) {
-      recommendation = 'Question has moderate similarity to existing content. Review for potential overlap.';
-    } else {
-      recommendation = 'Question appears unique and adds value to the question bank.';
-    }
-    
-    return {
-      isRedundant,
-      similarQuestions: highSimilarity,
-      recommendation
-    };
+    return data.embedding;
+  } catch (error) {
+    console.error('Error generating embedding:', error);
+    throw new Error('Failed to generate embedding');
   }
 }
 
-export const semanticAnalyzer = SemanticAnalyzer.getInstance();
+/**
+ * Calculate cosine similarity between two vectors
+ */
+export function cosineSimilarity(vecA: number[], vecB: number[]): number {
+  if (vecA.length !== vecB.length) {
+    throw new Error('Vectors must have the same length');
+  }
 
-// Export convenience function for direct use
-export function calculateCosineSimilarity(text1: string, text2: string, vector1?: string, vector2?: string): number {
-  const analyzer = SemanticAnalyzer.getInstance();
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+
+  for (let i = 0; i < vecA.length; i++) {
+    dotProduct += vecA[i] * vecB[i];
+    normA += vecA[i] * vecA[i];
+    normB += vecB[i] * vecB[i];
+  }
+
+  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
   
+  if (denominator === 0) return 0;
+  
+  return dotProduct / denominator;
+}
+
+/**
+ * Find similar questions to a given question
+ */
+export async function findSimilarQuestions(
+  questionId: string,
+  topK: number = 10,
+  threshold: number = 0.75
+): Promise<SimilarQuestion[]> {
+  try {
+    // Get the question and its embedding
+    const { data: question, error: questionError } = await supabase
+      .from('questions')
+      .select('id, question_text, semantic_vector')
+      .eq('id', questionId)
+      .single();
+
+    if (questionError) throw questionError;
+    if (!question.semantic_vector) {
+      throw new Error('Question does not have an embedding yet');
+    }
+
+    const queryVector = JSON.parse(question.semantic_vector);
+
+    // Get all other questions with embeddings
+    const { data: allQuestions, error: allError } = await supabase
+      .from('questions')
+      .select('id, question_text, topic, bloom_level, difficulty, semantic_vector')
+      .neq('id', questionId)
+      .not('semantic_vector', 'is', null);
+
+    if (allError) throw allError;
+
+    // Calculate similarities
+    const similarities: SimilarQuestion[] = [];
+
+    for (const q of allQuestions || []) {
+      if (!q.semantic_vector) continue;
+
+      const targetVector = JSON.parse(q.semantic_vector);
+      const similarity = cosineSimilarity(queryVector, targetVector);
+
+      if (similarity >= threshold) {
+        similarities.push({
+          id: q.id,
+          question_text: q.question_text,
+          topic: q.topic,
+          similarity_score: similarity,
+          bloom_level: q.bloom_level,
+          difficulty: q.difficulty
+        });
+      }
+    }
+
+    // Sort by similarity (highest first) and take topK
+    similarities.sort((a, b) => b.similarity_score - a.similarity_score);
+    return similarities.slice(0, topK);
+
+  } catch (error) {
+    console.error('Error finding similar questions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Store similarity pairs in the database
+ */
+export async function storeSimilarityPairs(
+  questionId: string,
+  similarQuestions: SimilarQuestion[]
+): Promise<void> {
+  try {
+    const pairs = similarQuestions.map(sq => ({
+      question1_id: questionId,
+      question2_id: sq.id,
+      similarity_score: sq.similarity_score,
+      algorithm_used: 'openai-text-embedding-3-small-cosine'
+    }));
+
+    const { error } = await supabase
+      .from('question_similarities')
+      .upsert(pairs, {
+        onConflict: 'question1_id,question2_id'
+      });
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error storing similarity pairs:', error);
+    throw error;
+  }
+}
+
+/**
+ * Index a single question - generate embedding and find similarities
+ */
+export async function indexQuestion(questionId: string): Promise<SimilarityResult> {
+  try {
+    // Get the question
+    const { data: question, error: questionError } = await supabase
+      .from('questions')
+      .select('id, question_text, semantic_vector')
+      .eq('id', questionId)
+      .single();
+
+    if (questionError) throw questionError;
+
+    // Generate embedding if it doesn't exist
+    let embedding: number[];
+    if (!question.semantic_vector) {
+      embedding = await generateEmbedding(question.question_text);
+      
+      // Store the embedding
+      const { error: updateError } = await supabase
+        .from('questions')
+        .update({ semantic_vector: JSON.stringify(embedding) })
+        .eq('id', questionId);
+
+      if (updateError) throw updateError;
+    } else {
+      embedding = JSON.parse(question.semantic_vector);
+    }
+
+    // Find similar questions
+    const similarQuestions = await findSimilarQuestions(questionId, 10, 0.75);
+
+    // Store similarity pairs
+    if (similarQuestions.length > 0) {
+      await storeSimilarityPairs(questionId, similarQuestions);
+    }
+
+    const hasDuplicates = similarQuestions.some(sq => sq.similarity_score >= 0.85);
+    const highestSimilarity = similarQuestions.length > 0 
+      ? similarQuestions[0].similarity_score 
+      : 0;
+
+    return {
+      question_id: questionId,
+      similar_questions: similarQuestions,
+      has_duplicates: hasDuplicates,
+      highest_similarity: highestSimilarity
+    };
+
+  } catch (error) {
+    console.error('Error indexing question:', error);
+    throw error;
+  }
+}
+
+/**
+ * Batch index all questions that don't have embeddings
+ */
+export async function indexAllQuestions(
+  batchSize: number = 50,
+  onProgress?: (current: number, total: number) => void
+): Promise<void> {
+  try {
+    // Get all questions without embeddings
+    const { data: questions, error } = await supabase
+      .from('questions')
+      .select('id')
+      .is('semantic_vector', null);
+
+    if (error) throw error;
+
+    const total = questions?.length || 0;
+    console.log(`Indexing ${total} questions...`);
+
+    // Process in batches to avoid rate limits
+    for (let i = 0; i < total; i += batchSize) {
+      const batch = questions!.slice(i, i + batchSize);
+      
+      await Promise.all(
+        batch.map(q => indexQuestion(q.id))
+      );
+
+      if (onProgress) {
+        onProgress(Math.min(i + batchSize, total), total);
+      }
+
+      // Small delay to respect rate limits
+      if (i + batchSize < total) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    console.log('All questions indexed successfully');
+  } catch (error) {
+    console.error('Error in batch indexing:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get similarity clusters - groups of similar questions
+ */
+export async function getSimilarityClusters(
+  threshold: number = 0.85
+): Promise<Array<SimilarQuestion[]>> {
+  try {
+    const { data: similarities, error } = await supabase
+      .from('question_similarities')
+      .select(`
+        question1_id,
+        question2_id,
+        similarity_score
+      `)
+      .gte('similarity_score', threshold);
+
+    if (error) throw error;
+
+    // Build clusters using union-find or simple grouping
+    const clusters: Map<string, Set<string>> = new Map();
+    
+    for (const sim of similarities || []) {
+      const q1 = sim.question1_id;
+      const q2 = sim.question2_id;
+      
+      // Find existing cluster
+      let cluster: Set<string> | undefined;
+      for (const [_, c] of clusters) {
+        if (c.has(q1) || c.has(q2)) {
+          cluster = c;
+          break;
+        }
+      }
+      
+      if (cluster) {
+        cluster.add(q1);
+        cluster.add(q2);
+      } else {
+        const newCluster = new Set([q1, q2]);
+        clusters.set(q1, newCluster);
+      }
+    }
+
+    // Convert to array of question objects
+    const result: Array<SimilarQuestion[]> = [];
+    for (const cluster of clusters.values()) {
+      if (cluster.size >= 2) {
+        const questions = await Promise.all(
+          Array.from(cluster).map(async id => {
+            const { data } = await supabase
+              .from('questions')
+              .select('id, question_text, topic, bloom_level, difficulty')
+              .eq('id', id)
+              .single();
+            
+            return data ? {
+              id: data.id,
+              question_text: data.question_text,
+              topic: data.topic,
+              bloom_level: data.bloom_level,
+              difficulty: data.difficulty,
+              similarity_score: 1.0
+            } : null;
+          })
+        );
+        
+        const validQuestions = questions.filter(q => q !== null) as SimilarQuestion[];
+        if (validQuestions.length >= 2) {
+          result.push(validQuestions);
+        }
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error getting similarity clusters:', error);
+    throw error;
+  }
+}
+
+// Export backward compatible function
+export function calculateCosineSimilarity(text1: string, text2: string, vector1?: string, vector2?: string): number {
   // Simple word overlap similarity if no vectors provided
   const words1 = new Set(text1.toLowerCase().split(/\s+/).filter(w => w.length > 2));
   const words2 = new Set(text2.toLowerCase().split(/\s+/).filter(w => w.length > 2));
