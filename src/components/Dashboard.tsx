@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { AnalyticsCharts } from "@/components/AnalyticsCharts";
+import AnalyticsCharts from "@/components/AnalyticsCharts";
 import { useRealtime } from "@/hooks/useRealtime";
 import { 
   BookOpen, 
