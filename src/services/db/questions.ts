@@ -11,6 +11,11 @@ export interface QuestionFilters {
   bloom_level?: string;
   difficulty?: string;
   approved?: boolean;
+  subject?: string;
+  grade_level?: string;
+  term?: string;
+  tags?: string[];
+  search?: string;
 }
 
 // Convert database question to component-compatible format
@@ -25,12 +30,7 @@ export function convertQuestion(dbQuestion: Question): Question & { correct_answ
 }
 
 export const Questions = {
-  async getAll(filters: {
-    topic?: string;
-    bloom_level?: string;
-    difficulty?: string;
-    approved?: boolean;
-  } = {}): Promise<Question[]> {
+  async getAll(filters: QuestionFilters = {}): Promise<Question[]> {
     let query = supabase.from('questions').select('*');
 
     if (filters.topic) {
@@ -44,6 +44,21 @@ export const Questions = {
     }
     if (filters.approved !== undefined) {
       query = query.eq('approved', filters.approved);
+    }
+    if (filters.subject) {
+      query = query.eq('subject', filters.subject);
+    }
+    if (filters.grade_level) {
+      query = query.eq('grade_level', filters.grade_level);
+    }
+    if (filters.term) {
+      query = query.eq('term', filters.term);
+    }
+    if (filters.tags && filters.tags.length > 0) {
+      query = query.contains('tags', filters.tags);
+    }
+    if (filters.search) {
+      query = query.textSearch('search_vector', filters.search);
     }
 
     const { data, error } = await query.order('created_at', { ascending: false });
@@ -133,13 +148,28 @@ export const Questions = {
     return data;
   },
 
-  async search(filters: {
-    topic?: string;
-    bloom_level?: string;
-    difficulty?: string;
-    approved?: boolean;
-  } = {}): Promise<Question[]> {
+  async search(filters: QuestionFilters = {}): Promise<Question[]> {
     return this.getAll(filters);
+  },
+
+  async getUniqueValues(): Promise<{
+    subjects: string[];
+    gradeLevels: string[];
+    terms: string[];
+    topics: string[];
+  }> {
+    const { data, error } = await supabase
+      .from('questions')
+      .select('subject, grade_level, term, topic');
+    
+    if (error) throw error;
+    
+    const subjects = [...new Set(data?.map(q => q.subject).filter(Boolean))] as string[];
+    const gradeLevels = [...new Set(data?.map(q => q.grade_level).filter(Boolean))] as string[];
+    const terms = [...new Set(data?.map(q => q.term).filter(Boolean))] as string[];
+    const topics = [...new Set(data?.map(q => q.topic).filter(Boolean))] as string[];
+    
+    return { subjects, gradeLevels, terms, topics };
   },
 
   async getStats() {

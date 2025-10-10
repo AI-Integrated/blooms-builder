@@ -923,6 +923,7 @@ export type Database = {
           created_by: string
           deleted: boolean | null
           difficulty: string
+          grade_level: string | null
           id: string
           knowledge_dimension: string | null
           metadata: Json | null
@@ -932,7 +933,11 @@ export type Database = {
           question_text: string
           question_type: string
           readability_score: number | null
+          search_vector: unknown | null
           semantic_vector: string | null
+          subject: string | null
+          tags: string[] | null
+          term: string | null
           topic: string
           tos_id: string | null
           updated_at: string | null
@@ -958,6 +963,7 @@ export type Database = {
           created_by?: string
           deleted?: boolean | null
           difficulty: string
+          grade_level?: string | null
           id?: string
           knowledge_dimension?: string | null
           metadata?: Json | null
@@ -967,7 +973,11 @@ export type Database = {
           question_text: string
           question_type: string
           readability_score?: number | null
+          search_vector?: unknown | null
           semantic_vector?: string | null
+          subject?: string | null
+          tags?: string[] | null
+          term?: string | null
           topic: string
           tos_id?: string | null
           updated_at?: string | null
@@ -993,6 +1003,7 @@ export type Database = {
           created_by?: string
           deleted?: boolean | null
           difficulty?: string
+          grade_level?: string | null
           id?: string
           knowledge_dimension?: string | null
           metadata?: Json | null
@@ -1002,7 +1013,11 @@ export type Database = {
           question_text?: string
           question_type?: string
           readability_score?: number | null
+          search_vector?: unknown | null
           semantic_vector?: string | null
+          subject?: string | null
+          tags?: string[] | null
+          term?: string | null
           topic?: string
           tos_id?: string | null
           updated_at?: string | null

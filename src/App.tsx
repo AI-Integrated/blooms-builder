@@ -12,6 +12,7 @@ import CurriculumStandards from "./pages/CurriculumStandards";
 import ProfessionalExport from "./pages/ProfessionalExport";
 import Phase4Hub from "./pages/Phase4Hub";
 import EnhancedClassification from "./pages/EnhancedClassification";
+import Library from "./pages/Library";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ const App = () => (
           <Route path="/professional-export" element={<ProfessionalExport />} />
           <Route path="/phase4" element={<Phase4Hub />} />
           <Route path="/validation" element={<EnhancedClassification />} />
+          <Route path="/library" element={<Library />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
