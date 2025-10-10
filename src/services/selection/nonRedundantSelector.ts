@@ -120,8 +120,32 @@ export class NonRedundantSelector {
       let similarTo = '';
 
       for (const selected of nonRedundant) {
-        // Simple text similarity check
-        const similarity = 0.5; // Placeholder - would use actual similarity calculation
+        // Check semantic similarity using embeddings if available
+        let similarity = 0;
+        
+        if (question.semantic_vector && selected.semantic_vector) {
+          try {
+            const vector1 = typeof question.semantic_vector === 'string' 
+              ? JSON.parse(question.semantic_vector) 
+              : question.semantic_vector;
+            const vector2 = typeof selected.semantic_vector === 'string'
+              ? JSON.parse(selected.semantic_vector)
+              : selected.semantic_vector;
+            
+            similarity = cosineSimilarity(vector1, vector2);
+          } catch (error) {
+            console.warn('Error calculating semantic similarity:', error);
+          }
+        }
+        
+        // Fallback to text-based similarity if no embeddings
+        if (similarity === 0) {
+          const words1 = new Set(question.question_text.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2));
+          const words2 = new Set(selected.question_text.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2));
+          const intersection = new Set([...words1].filter(x => words2.has(x)));
+          const union = new Set([...words1, ...words2]);
+          similarity = union.size > 0 ? intersection.size / union.size : 0;
+        }
 
         if (similarity > maxSimilarity) {
           isRedundant = true;

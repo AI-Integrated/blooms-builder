@@ -109,52 +109,96 @@ export function buildEnhancedNeedsFromTOS(tosMatrix: any): TestNeed[] {
 }
 
 /**
- * Fetch questions for specific needs, generate AI questions if insufficient
+ * Fetch questions for specific needs with intelligent selection (avoids redundancy)
  */
 export async function fetchQuestionsForNeeds(needs: TestNeed[], approvedOnly: boolean = true): Promise<any[]> {
-  const selectedQuestions: any[] = [];
-  const generatedQuestions: any[] = [];
-  const warnings: string[] = [];
+  const { IntelligentSelector } = await import('@/services/testAssembly/intelligentSelector');
+  
+  // Build distribution requirements
+  const topicDistribution: Record<string, number> = {};
+  const bloomDistribution: Record<string, number> = {};
+  const difficultyDistribution: Record<string, number> = {};
+  let totalQuestions = 0;
 
+  needs.forEach(need => {
+    topicDistribution[need.topic] = (topicDistribution[need.topic] || 0) + need.count;
+    bloomDistribution[need.bloom_level] = (bloomDistribution[need.bloom_level] || 0) + need.count;
+    difficultyDistribution[need.difficulty] = (difficultyDistribution[need.difficulty] || 0) + need.count;
+    totalQuestions += need.count;
+  });
+
+  // Fetch candidate pool (fetch 2x needed for better selection)
+  const candidatePool: any[] = [];
   for (const need of needs) {
-    // Try to fetch existing questions
-    const existingQuestions = await Questions.search({
+    const candidates = await Questions.search({
       topic: need.topic,
       bloom_level: need.bloom_level,
       difficulty: need.difficulty,
       approved: approvedOnly
     });
-
-    const available = existingQuestions || [];
-    const needed = need.count;
-    const shortage = Math.max(0, needed - available.length);
-
-    // Add available questions
-    selectedQuestions.push(...available.slice(0, needed));
-
-    // Generate AI questions for shortage
-    if (shortage > 0) {
-      const aiQuestions = generateAIQuestionsForNeed(
-        need.topic, 
-        need.bloom_level, 
-        need.difficulty, 
-        shortage
-      );
-      generatedQuestions.push(...aiQuestions);
-      warnings.push(`Generated ${shortage} AI questions for ${need.topic} (${need.bloom_level})`);
+    
+    if (candidates) {
+      candidatePool.push(...candidates);
     }
   }
 
-  // Insert generated questions to database
-  if (generatedQuestions.length > 0) {
-    const inserted = await Questions.insertMany(generatedQuestions);
-    selectedQuestions.push(...inserted);
+  // Remove duplicates
+  const uniqueCandidates = Array.from(
+    new Map(candidatePool.map(q => [q.id, q])).values()
+  );
+
+  console.log(`Candidate pool: ${uniqueCandidates.length} questions for ${totalQuestions} needed`);
+
+  // Use intelligent selector to avoid redundancy and balance usage
+  const selector = new IntelligentSelector({
+    topicDistribution,
+    bloomDistribution,
+    difficultyDistribution,
+    totalQuestions,
+    similarityThreshold: 0.85, // 85% similarity = duplicate
+    recentUseWindowDays: 365, // 1 year recency window
+    diversityWeight: 0.7,
+    qualityThreshold: 0.5
+  });
+
+  const selectionReport = await selector.selectQuestions(uniqueCandidates);
+  
+  console.log('Selection metrics:', selectionReport.metrics);
+  console.log(`Selected: ${selectionReport.selected.length}, Rejected: ${selectionReport.rejected.length}`);
+
+  // If still shortage, generate AI questions
+  const shortage = totalQuestions - selectionReport.selected.length;
+  if (shortage > 0) {
+    console.warn(`Shortage of ${shortage} questions. Generating with AI...`);
     
-    // Log activity
-    await ActivityLog.log('generate_questions', 'bulk');
+    const generatedQuestions: any[] = [];
+    for (const need of needs) {
+      const currentCount = selectionReport.selected.filter(
+        q => q.topic === need.topic && 
+             q.bloom_level === need.bloom_level && 
+             q.difficulty === need.difficulty
+      ).length;
+      
+      const needMore = need.count - currentCount;
+      if (needMore > 0) {
+        const aiQuestions = generateAIQuestionsForNeed(
+          need.topic,
+          need.bloom_level,
+          need.difficulty,
+          needMore
+        );
+        generatedQuestions.push(...aiQuestions);
+      }
+    }
+
+    if (generatedQuestions.length > 0) {
+      const inserted = await Questions.insertMany(generatedQuestions);
+      selectionReport.selected.push(...inserted);
+      await ActivityLog.log('generate_questions', 'bulk');
+    }
   }
 
-  return selectedQuestions;
+  return selectionReport.selected;
 }
 
 /**
@@ -255,7 +299,7 @@ export async function generateTestVersions(
 }
 
 /**
- * Save test with multiple versions to database using GeneratedTests service
+ * Save test with multiple versions to database and mark questions as used
  */
 export async function saveTestWithVersions(
   config: TestConfiguration,
@@ -263,6 +307,7 @@ export async function saveTestWithVersions(
 ): Promise<TestGenerationResult> {
   // Import GeneratedTests service dynamically to avoid circular dependencies
   const { GeneratedTests } = await import('@/services/db/generatedTests');
+  const { markQuestionsAsUsed } = await import('@/services/testAssembly/intelligentSelector');
   
   // Create separate database entries for each version
   const versionConfigs = versions.map((version, index) => ({
@@ -288,6 +333,18 @@ export async function saveTestWithVersions(
   const savedVersions = await GeneratedTests.createMultipleVersions(versionConfigs);
 
   await ActivityLog.log('generate_test', 'generated_tests');
+
+  // Mark all questions as used across all versions
+  const allQuestionIds = new Set<string>();
+  versions.forEach(version => {
+    version.questions.forEach(q => {
+      if (q.id) allQuestionIds.add(q.id);
+    });
+  });
+
+  if (savedVersions[0]?.id && allQuestionIds.size > 0) {
+    await markQuestionsAsUsed(Array.from(allQuestionIds), savedVersions[0].id);
+  }
 
   const generatedQuestions = versions[0]?.questions.filter(q => q.created_by === 'ai').length || 0;
   
