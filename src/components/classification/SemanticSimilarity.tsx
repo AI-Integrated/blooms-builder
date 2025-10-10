@@ -4,9 +4,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Network, TriangleAlert as AlertTriangle, Eye, Trash2, Merge, Info, Layers } from 'lucide-react';
+import { Network, AlertTriangle, Eye, Trash2, Merge, Info, Layers } from 'lucide-react';
 import { useSemanticAnalysis } from '@/hooks/useSemanticAnalysis';
-import { SimilarityResult, ClusterResult } from '@/services/ai/semanticAnalyzer';
 
 interface SemanticSimilarityProps {
   questionText: string;
@@ -29,25 +28,28 @@ export const SemanticSimilarity: React.FC<SemanticSimilarityProps> = ({
   const [showDetails, setShowDetails] = useState(false);
 
   const {
-    similarities,
+    similarQuestions,
     clusters,
     loading,
     error,
-    redundancyReport,
-    findSimilarQuestions,
-    clusterQuestions,
-    detectRedundancy
+    analyzeQuestion,
+    loadClusters,
+    checkDuplicate
   } = useSemanticAnalysis({
-    similarityThreshold,
-    clusteringEnabled: showClusters,
-    autoDetectRedundancy: true
+    similarityThreshold
   });
 
   useEffect(() => {
-    if (questionText.trim()) {
-      findSimilarQuestions(questionText, questionId ? [questionId] : []);
+    if (questionId) {
+      analyzeQuestion(questionId).catch(console.error);
     }
-  }, [questionText, questionId, findSimilarQuestions]);
+  }, [questionId, analyzeQuestion]);
+
+  useEffect(() => {
+    if (showClusters) {
+      loadClusters().catch(console.error);
+    }
+  }, [showClusters, loadClusters]);
 
   const getSimilarityColor = (similarity: number) => {
     if (similarity >= 0.9) return 'text-red-600';
@@ -114,22 +116,23 @@ export const SemanticSimilarity: React.FC<SemanticSimilarityProps> = ({
     );
   }
 
+  const hasDuplicates = similarQuestions.some(q => q.similarity_score >= 0.85);
+  const duplicateCount = similarQuestions.filter(q => q.similarity_score >= 0.85).length;
+
   return (
     <div className="space-y-4">
       {/* Redundancy Alert */}
-      {redundancyReport && redundancyReport.duplicatesFound > 0 && (
+      {hasDuplicates && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
             <div className="space-y-2">
               <p className="font-medium">
-                Potential Redundancy Detected: {redundancyReport.duplicatesFound} similar questions found
+                Potential Redundancy Detected: {duplicateCount} similar questions found
               </p>
-              <ul className="text-sm space-y-1">
-                {redundancyReport.recommendations.map((rec, index) => (
-                  <li key={index}>• {rec}</li>
-                ))}
-              </ul>
+              <p className="text-sm">
+                Questions with 85%+ similarity may be duplicates. Consider reviewing.
+              </p>
             </div>
           </AlertDescription>
         </Alert>
@@ -141,7 +144,7 @@ export const SemanticSimilarity: React.FC<SemanticSimilarityProps> = ({
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Network className="w-5 h-5" />
-              Similar Questions ({similarities.length})
+              Similar Questions ({similarQuestions.length})
             </div>
             <div className="flex gap-2">
               {selectedQuestions.length >= 2 && onMergeQuestions && (
@@ -162,7 +165,7 @@ export const SemanticSimilarity: React.FC<SemanticSimilarityProps> = ({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {similarities.length === 0 ? (
+          {similarQuestions.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Network className="w-12 h-12 mx-auto mb-2 opacity-50" />
               <p>No similar questions found</p>
@@ -170,40 +173,43 @@ export const SemanticSimilarity: React.FC<SemanticSimilarityProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {similarities.map((similarity, index) => (
+              {similarQuestions.map((question, index) => (
                 <div key={index} className="border rounded-lg p-4 space-y-3">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <Badge {...getSimilarityBadge(similarity.similarity)}>
-                          {(similarity.similarity * 100).toFixed(1)}% Similar
+                        <Badge {...getSimilarityBadge(question.similarity_score)}>
+                          {(question.similarity_score * 100).toFixed(1)}% Similar
                         </Badge>
                         <Badge variant="outline" className="text-xs">
-                          {similarity.algorithm}
+                          {question.topic}
                         </Badge>
                         {onMergeQuestions && (
                           <input
                             type="checkbox"
-                            checked={selectedQuestions.includes(similarity.questionId2)}
-                            onChange={() => handleQuestionSelect(similarity.questionId2)}
+                            checked={selectedQuestions.includes(question.id)}
+                            onChange={() => handleQuestionSelect(question.id)}
                             className="ml-2"
                           />
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        Question ID: {similarity.questionId2}
+                      <p className="text-sm font-medium mb-1">
+                        {question.question_text}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {question.bloom_level} • {question.difficulty}
                       </p>
                       {showDetails && (
                         <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
-                          <p>Similarity calculated using {similarity.algorithm} algorithm</p>
-                          <p>Confidence: {(similarity.confidence * 100).toFixed(1)}%</p>
+                          <p>Algorithm: OpenAI text-embedding-3-small</p>
+                          <p>Cosine similarity score: {question.similarity_score.toFixed(4)}</p>
                         </div>
                       )}
                     </div>
                     <div className="flex gap-2">
                       {onSimilarQuestionClick && (
                         <Button
-                          onClick={() => onSimilarQuestionClick(similarity.questionId2)}
+                          onClick={() => onSimilarQuestionClick(question.id)}
                           size="sm"
                           variant="outline"
                         >
@@ -217,7 +223,7 @@ export const SemanticSimilarity: React.FC<SemanticSimilarityProps> = ({
                     <div className="text-sm">
                       <span className="font-medium">Similarity Score:</span>
                     </div>
-                    <Progress value={similarity.similarity * 100} className="h-2" />
+                    <Progress value={question.similarity_score * 100} className="h-2" />
                   </div>
                 </div>
               ))}
@@ -238,34 +244,30 @@ export const SemanticSimilarity: React.FC<SemanticSimilarityProps> = ({
           <CardContent>
             <div className="space-y-4">
               {clusters.map((cluster, index) => (
-                <div key={cluster.clusterId} className="border rounded-lg p-4">
+                <div key={index} className="border rounded-lg p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline">
                         Cluster {index + 1}
                       </Badge>
                       <Badge variant="secondary">
-                        {cluster.questions.length} questions
+                        {cluster.length} questions
                       </Badge>
-                      <Badge variant="outline">
-                        {cluster.topic}
-                      </Badge>
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      Coherence: {(cluster.coherence * 100).toFixed(1)}%
+                      {cluster[0] && (
+                        <Badge variant="outline">
+                          {cluster[0].topic}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   
                   <div className="space-y-2">
-                    <div className="text-sm font-medium">Cluster Coherence:</div>
-                    <Progress value={cluster.coherence * 100} className="h-2" />
-                    
-                    {showDetails && (
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        <p>Questions in this cluster: {cluster.questions.join(', ')}</p>
-                        <p>Topic: {cluster.topic}</p>
+                    <div className="text-sm font-medium">Questions in Cluster:</div>
+                    {cluster.map((q, qi) => (
+                      <div key={qi} className="text-sm p-2 bg-muted rounded">
+                        {q.question_text.substring(0, 100)}...
                       </div>
-                    )}
+                    ))}
                   </div>
                 </div>
               ))}
@@ -282,14 +284,14 @@ export const SemanticSimilarity: React.FC<SemanticSimilarityProps> = ({
             <div>
               <h4 className="font-semibold text-sm mb-2 text-blue-800">Semantic Analysis Summary</h4>
               <div className="text-sm text-blue-700 space-y-1">
-                <p>• Found {similarities.length} similar questions above {(similarityThreshold * 100).toFixed(0)}% threshold</p>
+                <p>• Found {similarQuestions.length} similar questions above {(similarityThreshold * 100).toFixed(0)}% threshold</p>
                 {showClusters && (
                   <p>• Identified {clusters.length} question clusters in the bank</p>
                 )}
-                {redundancyReport && (
-                  <p>• Detected {redundancyReport.duplicatesFound} potential duplicates</p>
+                {hasDuplicates && (
+                  <p>• Detected {duplicateCount} potential duplicates (≥85% similarity)</p>
                 )}
-                <p>• Recommendation: {similarities.length > 3 ? 'Review for potential consolidation' : 'Question appears sufficiently unique'}</p>
+                <p>• Recommendation: {similarQuestions.length > 3 ? 'Review for potential consolidation' : 'Question appears sufficiently unique'}</p>
               </div>
             </div>
           </div>
