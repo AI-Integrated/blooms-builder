@@ -1,56 +1,98 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/lib/auth';
 import { supabase } from '@/integrations/supabase/client';
 
-export interface UserRole {
-  role: 'admin' | 'teacher';
+export type UserRole = 'admin' | 'teacher' | 'validator' | 'student';
+
+export interface UserRoleData {
+  role: UserRole | null;
+  loading: boolean;
   isAdmin: boolean;
   isTeacher: boolean;
-  loading: boolean;
+  isValidator: boolean;
+  hasRole: (role: UserRole) => boolean;
+  refetch: () => Promise<void>;
 }
 
-export function useUserRole(): UserRole {
-  const { user, loading: authLoading } = useAuth();
-  const [role, setRole] = useState<'admin' | 'teacher'>('teacher');
+export function useUserRole(): UserRoleData {
+  const [role, setRole] = useState<UserRole | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchUserRole() {
+  const fetchUserRole = async () => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      
       if (!user) {
-        setLoading(false);
+        setRole(null);
         return;
       }
 
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single();
+      // Fetch user's roles from user_roles table
+      const { data: userRoles, error } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .order('role', { ascending: true }); // Admin will come first due to enum ordering
 
-        if (error) {
-          console.error('Error fetching user role:', error);
-          setRole('teacher');
-        } else {
-          setRole((data?.role as 'admin' | 'teacher') || 'teacher');
-        }
-      } catch (err) {
-        console.error('Error in fetchUserRole:', err);
-        setRole('teacher');
-      } finally {
-        setLoading(false);
+      if (error) {
+        console.error('Error fetching user role:', error);
+        setRole(null);
+        return;
       }
-    }
 
-    if (!authLoading) {
-      fetchUserRole();
+      // User can have multiple roles, take the highest priority
+      if (userRoles && userRoles.length > 0) {
+        const roleOrder: UserRole[] = ['admin', 'validator', 'teacher', 'student'];
+        const highestRole = roleOrder.find(r => 
+          userRoles.some(ur => ur.role === r)
+        ) || 'teacher';
+        setRole(highestRole);
+      } else {
+        setRole('teacher'); // Default role
+      }
+    } catch (error) {
+      console.error('Error in useUserRole:', error);
+      setRole(null);
+    } finally {
+      setLoading(false);
     }
-  }, [user, authLoading]);
+  };
+
+  useEffect(() => {
+    fetchUserRole();
+
+    // Subscribe to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      fetchUserRole();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const hasRole = (checkRole: UserRole): boolean => {
+    if (!role) return false;
+    
+    // Admin has all permissions
+    if (role === 'admin') return true;
+    
+    // Validator has teacher permissions
+    if (role === 'validator' && (checkRole === 'teacher' || checkRole === 'validator')) {
+      return true;
+    }
+    
+    // Otherwise, exact match required
+    return role === checkRole;
+  };
 
   return {
     role,
+    loading,
     isAdmin: role === 'admin',
-    isTeacher: role === 'teacher',
-    loading: loading || authLoading
+    isTeacher: role === 'teacher' || role === 'admin' || role === 'validator',
+    isValidator: role === 'validator' || role === 'admin',
+    hasRole,
+    refetch: fetchUserRole,
   };
 }

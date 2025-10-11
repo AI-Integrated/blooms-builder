@@ -168,38 +168,23 @@ export async function storeSimilarityPairs(
  */
 export async function indexQuestion(questionId: string): Promise<SimilarityResult> {
   try {
-    // Get the question
-    const { data: question, error: questionError } = await supabase
-      .from('questions')
-      .select('id, question_text, semantic_vector')
-      .eq('id', questionId)
-      .single();
+    const startTime = performance.now();
 
-    if (questionError) throw questionError;
+    // Call the edge function to handle embedding and similarity calculation
+    const { data, error } = await supabase.functions.invoke('update-semantic', {
+      body: { question_id: questionId }
+    });
 
-    // Generate embedding if it doesn't exist
-    let embedding: number[];
-    if (!question.semantic_vector) {
-      embedding = await generateEmbedding(question.question_text);
-      
-      // Store the embedding
-      const { error: updateError } = await supabase
-        .from('questions')
-        .update({ semantic_vector: JSON.stringify(embedding) })
-        .eq('id', questionId);
-
-      if (updateError) throw updateError;
-    } else {
-      embedding = JSON.parse(question.semantic_vector);
+    if (error) {
+      console.error('Error calling update-semantic function:', error);
+      throw error;
     }
 
-    // Find similar questions
+    const duration = performance.now() - startTime;
+    console.log(`Semantic indexing completed for ${questionId} in ${duration}ms`);
+
+    // Fetch similar questions from database
     const similarQuestions = await findSimilarQuestions(questionId, 10, 0.75);
-
-    // Store similarity pairs
-    if (similarQuestions.length > 0) {
-      await storeSimilarityPairs(questionId, similarQuestions);
-    }
 
     const hasDuplicates = similarQuestions.some(sq => sq.similarity_score >= 0.85);
     const highestSimilarity = similarQuestions.length > 0 

@@ -114,7 +114,21 @@ export function useTaxonomyClassification(options: UseTaxonomyClassificationOpti
 
       // Store results if requested
       if (storeResults) {
+        const classifyStartTime = performance.now();
         await storeClassificationResult(input, result, confidenceAnalysis);
+        const classifyDuration = performance.now() - classifyStartTime;
+
+        // Log classification metrics
+        try {
+          await supabase.rpc('log_classification_metric', {
+            p_question_id: (input as any).id || null,
+            p_confidence: result.confidence,
+            p_cognitive_level: result.cognitive_level,
+            p_response_time_ms: classifyDuration
+          });
+        } catch (error) {
+          console.error('Error logging classification metric:', error);
+        }
       }
 
       return result;
