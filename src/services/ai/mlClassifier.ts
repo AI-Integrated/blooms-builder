@@ -1,4 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
+import { RuleBasedClassifier } from './ruleBasedClassifier';
+import { ExplainabilityService, ClassificationExplanation } from './explainability';
 
 export interface MLClassificationResult {
   cognitive_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating';
@@ -10,6 +12,7 @@ export interface MLClassificationResult {
   readability_score: number;
   semantic_vector: number[];
   needs_review: boolean;
+  explanation?: ClassificationExplanation;
 }
 
 export interface QuestionInput {
@@ -99,9 +102,9 @@ export class MLClassifier {
       difficultyResult.confidence
     ]);
 
-    return {
+    const mlResult = {
       cognitive_level: bloomResult.level,
-      bloom_level: bloomResult.level, // Backward compatibility
+      bloom_level: bloomResult.level,
       knowledge_dimension: knowledgeResult.dimension,
       difficulty: difficultyResult.level,
       confidence: overallConfidence,
@@ -110,6 +113,29 @@ export class MLClassifier {
       semantic_vector: semanticVector,
       needs_review: overallConfidence < 0.75 || qualityResult.score < 0.7
     };
+
+    // Enhanced: Add rule-based analysis and explainability
+    try {
+      const ruleBasedResult = RuleBasedClassifier.classifyQuestion(input.text, input.type, input.topic);
+      
+      // Combine ML and rule-based for better results
+      const ensembleResult = RuleBasedClassifier.combineWithMLClassification(ruleBasedResult, mlResult);
+      
+      // Generate comprehensive explanation (if confidenceResult is available)
+      // This would be called from higher level with full confidence data
+      
+      return {
+        ...mlResult,
+        cognitive_level: ensembleResult.bloomLevel as any,
+        bloom_level: ensembleResult.bloomLevel as any,
+        knowledge_dimension: ensembleResult.knowledgeDimension as any,
+        confidence: ensembleResult.confidence,
+        needs_review: ensembleResult.confidence < 0.75
+      };
+    } catch (error) {
+      console.error('Error in enhanced classification:', error);
+      return mlResult;
+    }
   }
 
   private async classifyBloom(text: string): Promise<{ level: any; confidence: number }> {
