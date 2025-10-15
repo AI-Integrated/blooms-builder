@@ -1,10 +1,10 @@
 project_id = "lohmzywgbkntvpuygvfx"
 
 [functions.generate-embedding]
-verify_jwt = false
+verify_jwt = true
 
 [functions.classify-questions]
-verify_jwt = false
+verify_jwt = true
 
 [functions.rubrics]
 verify_jwt = true
@@ -22,7 +22,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.enhanced-classify]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ml-model-retraining]
-verify_jwt = false
+verify_jwt = true

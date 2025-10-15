@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,21 +8,26 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
-type ClassificationInput = {
-  text: string;
-  type: 'mcq' | 'true_false' | 'essay' | 'short_answer';
-  topic?: string;
-};
+// Input validation schema
+const classificationInputSchema = z.object({
+  text: z.string().min(10, "Question text must be at least 10 characters").max(5000, "Question text must be less than 5000 characters"),
+  type: z.enum(['mcq', 'true_false', 'essay', 'short_answer']),
+  topic: z.string().min(2).max(200).optional()
+});
+
+const classificationArraySchema = z.array(classificationInputSchema);
+
+type ClassificationInput = z.infer<typeof classificationInputSchema>;
 
 type ClassificationOutput = {
   cognitive_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating';
-  bloom_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating'; // Deprecated
+  bloom_level: 'remembering' | 'understanding' | 'applying' | 'analyzing' | 'evaluating' | 'creating';
   difficulty: 'easy' | 'average' | 'difficult';
   knowledge_dimension: 'factual' | 'conceptual' | 'procedural' | 'metacognitive';
-  confidence: number;           // 0..1
-  quality_score: number;       // 0..1
-  readability_score: number;   // Grade level
-  semantic_vector: number[];   // Embedding vector
+  confidence: number;
+  quality_score: number;
+  readability_score: number;
+  semantic_vector: number[];
   needs_review: boolean;
 };
 
@@ -62,29 +68,20 @@ const BLOOM_VERB_MAP: Record<string, ClassificationOutput['bloom_level']> = {
   'build': 'creating', 'invent': 'creating', 'combine': 'creating'
 };
 
-// Knowledge dimension mapping
 const KNOWLEDGE_DIMENSION_MAP: Record<string, ClassificationOutput['knowledge_dimension']> = {
-  // Factual
   'define': 'factual', 'list': 'factual', 'name': 'factual', 'identify': 'factual',
   'recall': 'factual', 'recognize': 'factual', 'select': 'factual', 'match': 'factual',
-  
-  // Conceptual
   'explain': 'conceptual', 'classify': 'conceptual', 'compare': 'conceptual',
   'summarize': 'conceptual', 'interpret': 'conceptual', 'illustrate': 'conceptual',
   'contrast': 'conceptual', 'discuss': 'conceptual',
-  
-  // Procedural
   'apply': 'procedural', 'use': 'procedural', 'implement': 'procedural',
   'execute': 'procedural', 'demonstrate': 'procedural', 'calculate': 'procedural',
   'solve': 'procedural', 'operate': 'procedural', 'construct': 'procedural',
-  
-  // Metacognitive
   'evaluate': 'metacognitive', 'assess': 'metacognitive', 'judge': 'metacognitive',
   'critique': 'metacognitive', 'justify': 'metacognitive', 'reflect': 'metacognitive',
   'plan': 'metacognitive', 'monitor': 'metacognitive'
 };
 
-// Context-based indicators for knowledge dimensions
 const KNOWLEDGE_INDICATORS = {
   factual: ['what is', 'define', 'list', 'name', 'identify', 'when', 'where', 'who', 'which', 'what year', 'how many'],
   conceptual: ['explain', 'compare', 'contrast', 'relationship', 'why', 'how does', 'principle', 'theory', 'model', 'framework'],
@@ -99,7 +96,6 @@ function guessBloomAndKD(text: string, type: ClassificationInput['type']): Pick<
   let verbHits = 0;
   let kdHits = 0;
 
-  // Check for explicit verb indicators
   for (const [verb, bloom] of Object.entries(BLOOM_VERB_MAP)) {
     if (t.includes(` ${verb} `) || t.startsWith(verb) || t.includes(`${verb}:`)) {
       bestBloom = bloom;
@@ -108,7 +104,6 @@ function guessBloomAndKD(text: string, type: ClassificationInput['type']): Pick<
     }
   }
 
-  // Check for knowledge dimension verbs
   for (const [verb, kd] of Object.entries(KNOWLEDGE_DIMENSION_MAP)) {
     if (t.includes(` ${verb} `) || t.startsWith(verb)) {
       bestKD = kd;
@@ -117,7 +112,6 @@ function guessBloomAndKD(text: string, type: ClassificationInput['type']): Pick<
     }
   }
 
-  // Check for context indicators if no direct verb match
   if (verbHits === 0) {
     for (const [kd, indicators] of Object.entries(KNOWLEDGE_INDICATORS)) {
       if (indicators.some(indicator => t.includes(indicator))) {
@@ -128,22 +122,18 @@ function guessBloomAndKD(text: string, type: ClassificationInput['type']): Pick<
     }
   }
 
-  // Question type influences knowledge dimension
   if (type === 'essay' && bestKD === 'factual') {
-    bestKD = 'conceptual'; // Essays are rarely purely factual
+    bestKD = 'conceptual';
   }
 
-  // Calculate confidence based on hits and question characteristics
-  let confidence = 0.5; // base confidence
-  confidence += verbHits * 0.2; // boost for verb matches
-  confidence += kdHits * 0.1; // boost for KD matches
+  let confidence = 0.5;
+  confidence += verbHits * 0.2;
+  confidence += kdHits * 0.1;
   
-  // Adjust for question length and complexity
   const wordCount = t.split(/\s+/).length;
-  if (wordCount < 8) confidence -= 0.1; // very short questions are harder to classify
-  if (wordCount > 25) confidence += 0.1; // longer questions often have clearer indicators
+  if (wordCount < 8) confidence -= 0.1;
+  if (wordCount > 25) confidence += 0.1;
   
-  // Type-specific adjustments
   if (type === 'mcq' && t.includes('which of the following')) confidence += 0.1;
   if (type === 'essay' && bestBloom === 'creating') confidence += 0.1;
 
@@ -157,40 +147,34 @@ function guessBloomAndKD(text: string, type: ClassificationInput['type']): Pick<
 function guessDifficulty(text: string, type: ClassificationInput['type'], bloom: ClassificationOutput['bloom_level']): ClassificationOutput['difficulty'] {
   const t = text.toLowerCase();
   
-  // Explicit difficulty indicators
   const easyIndicators = ['simple', 'basic', 'elementary', 'straightforward', 'fundamental'];
   const difficultIndicators = ['complex', 'advanced', 'sophisticated', 'intricate', 'comprehensive'];
   
   if (easyIndicators.some(word => t.includes(word))) return 'easy';
   if (difficultIndicators.some(word => t.includes(word))) return 'difficult';
   
-  // Length-based heuristics
   const wordCount = t.split(/\s+/).length;
   const complexityScore = (t.match(/[,:;()-]/g)?.length ?? 0);
   
   if (type === 'essay' || complexityScore > 6 || wordCount > 30) return 'difficult';
   if (wordCount > 15 || complexityScore > 3) return 'average';
   
-  // Bloom-based inference
   if (bloom === 'remembering' || bloom === 'understanding') return 'easy';
   if (bloom === 'evaluating' || bloom === 'creating') return 'difficult';
   
-  return 'average'; // default
+  return 'average';
 }
 
 function calculateQualityScore(text: string, type: string): number {
   let score = 1.0;
   
-  // Length appropriateness
   const wordCount = text.split(/\s+/).length;
   if (wordCount < 5) score -= 0.3;
   if (wordCount > 50) score -= 0.2;
   
-  // Grammar and structure
   if (!/[.?!]$/.test(text.trim())) score -= 0.1;
-  if (text.includes('  ')) score -= 0.05; // Double spaces
+  if (text.includes('  ')) score -= 0.05;
   
-  // Question clarity
   if (type === 'mcq' && !text.includes('?') && !text.toLowerCase().includes('which')) {
     score -= 0.1;
   }
@@ -203,7 +187,6 @@ function calculateReadabilityScore(text: string): number {
   const sentences = text.split(/[.!?]+/).filter(s => s.trim()).length;
   const syllables = estimateSyllables(text);
   
-  // Flesch-Kincaid Grade Level
   if (sentences === 0) return 8.0;
   return 0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59;
 }
@@ -217,7 +200,6 @@ function estimateSyllables(text: string): number {
 }
 
 function generateSemanticVector(text: string): number[] {
-  // Simplified semantic vector (in production, use actual embeddings)
   const words = text.toLowerCase().split(/\s+/);
   const vector = new Array(50).fill(0);
   
@@ -226,7 +208,6 @@ function generateSemanticVector(text: string): number[] {
     vector[hash % 50] += 1;
   });
   
-  // Normalize
   const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
   return magnitude > 0 ? vector.map(val => val / magnitude) : vector;
 }
@@ -242,17 +223,45 @@ function simpleHash(str: string): number {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const payload: ClassificationInput[] = await req.json();
-    
-    if (!Array.isArray(payload)) {
-      throw new Error('Expected array of classification inputs');
+    // Validate authentication
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }), 
+        { 
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
     }
+
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    
+    if (authError || !user) {
+      console.error('Authentication failed:', authError);
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }), 
+        { 
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
+    }
+
+    // Parse and validate input
+    const rawPayload = await req.json();
+    const payload = classificationArraySchema.parse(rawPayload);
 
     const results: ClassificationOutput[] = payload.map(({ text, type, topic }) => {
       const { bloom_level, knowledge_dimension, confidence } = guessBloomAndKD(text, type);
@@ -260,14 +269,14 @@ serve(async (req) => {
       const quality_score = calculateQualityScore(text, type);
       const readability_score = calculateReadabilityScore(text);
       const semantic_vector = generateSemanticVector(text);
-      const needs_review = confidence < 0.7; // Flag for manual review if confidence is low
+      const needs_review = confidence < 0.7;
 
       return {
-        cognitive_level: bloom_level, // Use cognitive_level as primary
-        bloom_level, // Keep for backward compatibility
+        cognitive_level: bloom_level,
+        bloom_level,
         difficulty,
         knowledge_dimension,
-        confidence: Math.round(confidence * 100) / 100, // Round to 2 decimal places
+        confidence: Math.round(confidence * 100) / 100,
         quality_score: Math.round(quality_score * 100) / 100,
         readability_score: Math.round(readability_score * 10) / 10,
         semantic_vector,
@@ -281,11 +290,25 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Classification error:', error);
+    
+    if (error instanceof z.ZodError) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid input', 
+          details: error.errors 
+        }), 
+        { 
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
+    }
+    
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ error: `Classification failed: ${message}` }), 
       { 
-        status: 400,
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       }
     );

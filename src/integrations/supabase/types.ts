@@ -44,6 +44,62 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_generation_logs: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          generated_at: string | null
+          generated_by: string | null
+          generation_type: string
+          id: string
+          metadata: Json | null
+          model_used: string | null
+          prompt_used: string | null
+          question_id: string | null
+          rejection_reason: string | null
+          semantic_similarity_score: number | null
+          tos_id: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          generated_at?: string | null
+          generated_by?: string | null
+          generation_type: string
+          id?: string
+          metadata?: Json | null
+          model_used?: string | null
+          prompt_used?: string | null
+          question_id?: string | null
+          rejection_reason?: string | null
+          semantic_similarity_score?: number | null
+          tos_id?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          generated_at?: string | null
+          generated_by?: string | null
+          generation_type?: string
+          id?: string
+          metadata?: Json | null
+          model_used?: string | null
+          prompt_used?: string | null
+          question_id?: string | null
+          rejection_reason?: string | null
+          semantic_similarity_score?: number | null
+          tos_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_generation_logs_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       assembly_versions: {
         Row: {
           assembly_id: string
@@ -935,6 +991,7 @@ export type Database = {
           readability_score: number | null
           search_vector: unknown | null
           semantic_vector: string | null
+          status: string | null
           subject: string | null
           tags: string[] | null
           term: string | null
@@ -975,6 +1032,7 @@ export type Database = {
           readability_score?: number | null
           search_vector?: unknown | null
           semantic_vector?: string | null
+          status?: string | null
           subject?: string | null
           tags?: string[] | null
           term?: string | null
@@ -1015,6 +1073,7 @@ export type Database = {
           readability_score?: number | null
           search_vector?: unknown | null
           semantic_vector?: string | null
+          status?: string | null
           subject?: string | null
           tags?: string[] | null
           term?: string | null

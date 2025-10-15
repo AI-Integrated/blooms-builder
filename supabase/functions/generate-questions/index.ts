@@ -1,40 +1,62 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Input validation schema
+const generateRequestSchema = z.object({
+  tos_id: z.string().uuid("Invalid TOS ID format"),
+  request: z.object({
+    topic: z.string().min(2, "Topic must be at least 2 characters").max(200, "Topic must be less than 200 characters"),
+    bloom_level: z.enum(['Remembering', 'Understanding', 'Applying', 'Analyzing', 'Evaluating', 'Creating']),
+    difficulty: z.enum(['Easy', 'Average', 'Difficult']),
+    count: z.number().int().min(1).max(20).default(5)
+  })
+});
+
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { tos_id, request } = await req.json();
-    
-    // Validate input
-    if (!tos_id || !request) {
+    // Validate authentication
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: tos_id and request' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'Missing authorization header' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const { topic, bloom_level, difficulty, count = 5 } = request;
-
-    console.log('Generating questions for:', { tos_id, topic, bloom_level, difficulty, count });
-
-    // Initialize Supabase client
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    // Get OpenAI API key
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error('Authentication failed:', authError);
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Parse and validate input
+    const rawInput = await req.json();
+    const { tos_id, request } = generateRequestSchema.parse(rawInput);
+    const { topic, bloom_level, difficulty, count } = request;
+
+    console.log('Generating questions for:', { tos_id, topic, bloom_level, difficulty, count, user_id: user.id });
+
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openAIApiKey) {
       return new Response(
@@ -43,7 +65,6 @@ serve(async (req) => {
       );
     }
 
-    // Create prompt based on Bloom's level and difficulty
     const bloomInstructions = {
       'Remembering': 'Focus on recall, recognition, and basic facts. Use verbs like define, list, identify, state.',
       'Understanding': 'Focus on comprehension and explanation. Use verbs like explain, summarize, describe, interpret.',
@@ -94,7 +115,6 @@ Return a JSON object with an "items" array containing questions in this exact fo
 
     console.log('Sending prompt to OpenAI...');
 
-    // Call OpenAI API
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -146,7 +166,6 @@ Return a JSON object with an "items" array containing questions in this exact fo
     const items = generatedQuestions.items || [];
     console.log(`Generated ${items.length} questions`);
 
-    // Validate and filter questions
     const validQuestions = items.filter((q: any) => {
       return (
         q.text && q.text.length > 10 &&
@@ -165,21 +184,6 @@ Return a JSON object with an "items" array containing questions in this exact fo
       );
     }
 
-    // Get current user from auth header
-    const authHeader = req.headers.get('authorization');
-    let userId = null;
-    
-    if (authHeader) {
-      try {
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user } } = await supabase.auth.getUser(token);
-        userId = user?.id;
-      } catch (authError) {
-        console.error('Auth error:', authError);
-      }
-    }
-
-    // Prepare questions for database insertion
     const questionsToInsert = validQuestions.map((q: any) => ({
       tos_id,
       topic,
@@ -193,10 +197,9 @@ Return a JSON object with an "items" array containing questions in this exact fo
       created_by: 'ai',
       approved: false,
       confidence_score: 0.8,
-      owner: userId
+      owner: user.id
     }));
 
-    // Insert questions into database
     const { data: insertedQuestions, error: insertError } = await supabase
       .from('questions')
       .insert(questionsToInsert)
@@ -224,6 +227,20 @@ Return a JSON object with an "items" array containing questions in this exact fo
 
   } catch (error) {
     console.error('Unexpected error:', error);
+    
+    if (error instanceof z.ZodError) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid input', 
+          details: error.errors 
+        }), 
+        { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+    
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ error: 'An unexpected error occurred', details: message }),
