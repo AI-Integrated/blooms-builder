@@ -1,10 +1,18 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Input validation schema
+const SimilarityRequestSchema = z.object({
+  questionText: z.string().min(10, "Question text must be at least 10 characters").max(5000, "Question text must be less than 5000 characters"),
+  questionId: z.string().uuid("Invalid question ID").optional(),
+  threshold: z.number().min(0, "Threshold must be between 0 and 1").max(1, "Threshold must be between 0 and 1").default(0.7)
+});
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -12,7 +20,36 @@ serve(async (req) => {
   }
 
   try {
-    const { questionText, questionId, threshold = 0.7 } = await req.json();
+    // Validate authentication
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }), 
+        { 
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
+    }
+
+    // Parse and validate input
+    const rawInput = await req.json();
+    const validationResult = SimilarityRequestSchema.safeParse(rawInput);
+    
+    if (!validationResult.success) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid input', 
+          details: validationResult.error.errors 
+        }), 
+        { 
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
+    }
+    
+    const { questionText, questionId, threshold } = validationResult.data;
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
