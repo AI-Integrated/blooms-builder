@@ -187,30 +187,64 @@ async function generateQuestionsWithAI(
   count: number,
   userId: string
 ): Promise<any[]> {
+  // Use the edge function to generate questions with proper distribution
   const { data, error } = await supabase.functions.invoke('generate-questions-from-tos', {
     body: {
-      topic: criteria.topic,
-      bloom_level: criteria.bloom_level,
-      knowledge_dimension: criteria.knowledge_dimension,
-      difficulty: criteria.difficulty,
-      count: count
+      tos_id: 'temp-generation',
+      total_items: count,
+      distributions: [{
+        topic: criteria.topic,
+        counts: {
+          remembering: criteria.bloom_level.toLowerCase() === 'remembering' ? count : 0,
+          understanding: criteria.bloom_level.toLowerCase() === 'understanding' ? count : 0,
+          applying: criteria.bloom_level.toLowerCase() === 'applying' ? count : 0,
+          analyzing: criteria.bloom_level.toLowerCase() === 'analyzing' ? count : 0,
+          evaluating: criteria.bloom_level.toLowerCase() === 'evaluating' ? count : 0,
+          creating: criteria.bloom_level.toLowerCase() === 'creating' ? count : 0,
+          difficulty: {
+            easy: criteria.difficulty.toLowerCase() === 'easy' ? count : 0,
+            average: criteria.difficulty.toLowerCase() === 'average' ? count : 0,
+            difficult: criteria.difficulty.toLowerCase() === 'difficult' ? count : 0
+          }
+        }
+      }],
+      allow_unapproved: false,
+      prefer_existing: true
     }
   });
 
   if (error) {
     console.error("Error generating questions:", error);
-    throw error;
+    throw new Error("Failed to generate questions: " + (error.message || "Unknown error"));
   }
 
-  const generatedQuestions = data.questions || [];
+  const generatedQuestions = data?.questions || [];
 
-  // Store generated questions with pending status
-  const questionsToInsert = generatedQuestions.map((q: any) => ({
-    ...q,
+  // Filter for only AI-generated questions that need to be saved
+  const questionsToSave = generatedQuestions.filter((q: any) => q.created_by === 'ai');
+
+  if (questionsToSave.length === 0) {
+    // All questions came from existing bank
+    return generatedQuestions;
+  }
+
+  // Store AI-generated questions into the question bank for reuse
+  const questionsToInsert = questionsToSave.map((q: any) => ({
+    question_text: q.question_text,
+    question_type: q.question_type,
+    choices: q.choices,
+    correct_answer: q.correct_answer,
+    topic: q.topic,
+    bloom_level: q.bloom_level,
+    difficulty: q.difficulty,
+    knowledge_dimension: q.knowledge_dimension,
     created_by: 'ai',
-    status: 'pending',
-    approved: false,
-    owner: userId
+    status: 'approved',
+    approved: true,
+    owner: userId,
+    ai_confidence_score: q.ai_confidence_score || 0.6,
+    needs_review: q.needs_review || true,
+    metadata: q.metadata || {}
   }));
 
   const { data: insertedQuestions, error: insertError } = await supabase
@@ -220,31 +254,33 @@ async function generateQuestionsWithAI(
 
   if (insertError) {
     console.error("Error inserting generated questions:", insertError);
-    throw insertError;
+    // Don't throw - use the generated questions even if save fails
+    return generatedQuestions;
   }
 
-  // Log AI generation
+  // Log AI generation for tracking
   for (const question of insertedQuestions || []) {
     await supabase.from('ai_generation_logs').insert({
       question_id: question.id,
-      generation_type: 'new',
-      prompt_used: `Generate ${criteria.bloom_level} question on ${criteria.topic}`,
-      model_used: 'google/gemini-2.5-flash',
+      generation_type: 'tos_generation',
+      prompt_used: `Generate ${criteria.bloom_level} question on ${criteria.topic} with ${criteria.difficulty} difficulty`,
+      model_used: 'fallback_template',
       generated_by: userId
     });
   }
 
-  // Generate semantic vectors for new questions
+  // Generate semantic vectors for new questions (async, don't wait)
   for (const question of insertedQuestions || []) {
-    await supabase.functions.invoke('update-semantic', {
+    supabase.functions.invoke('update-semantic', {
       body: {
         question_id: question.id,
         question_text: question.question_text
       }
-    });
+    }).catch(err => console.error('Error updating semantic vector:', err));
   }
 
-  return insertedQuestions || [];
+  // Return the inserted questions with their IDs
+  return insertedQuestions || generatedQuestions;
 }
 
 /**

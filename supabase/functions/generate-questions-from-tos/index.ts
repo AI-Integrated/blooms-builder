@@ -81,35 +81,186 @@ function generateFallbackQuestions(
   const verbs = verbTemplates[bloom] ?? ['Explain'];
   const questions = [];
 
+  // Generate diverse question types based on Bloom level
   for (let i = 0; i < count; i++) {
     const verb = verbs[i % verbs.length];
-    const questionText = `${verb} a key concept related to ${topic}.`;
-    
-    // Generate realistic MCQ choices
-    const choices = {
-      A: `A comprehensive approach to ${topic}`,
-      B: `A basic understanding of ${topic}`,
-      C: `An alternative method for ${topic}`,
-      D: `A contrasting view of ${topic}`
-    };
+    let question: any;
 
-    questions.push({
-      topic,
-      question_text: questionText,
-      question_type: 'mcq',
-      choices,
-      correct_answer: 'A',
-      bloom_level: bloom,
-      difficulty,
-      knowledge_dimension: bloom === 'creating' ? 'procedural' : 
-                          bloom === 'evaluating' ? 'metacognitive' :
-                          bloom === 'applying' ? 'procedural' : 'conceptual',
-      created_by: 'ai',
-      approved: false,
-      ai_confidence_score: 0.6,
-      needs_review: true,
-      metadata: { generated_by: 'fallback_template', template_version: '1.0' }
-    });
+    // Remembering and Understanding: Mix of MCQ and True/False
+    if (['remembering', 'understanding'].includes(bloom)) {
+      if (i % 2 === 0) {
+        // MCQ
+        const questionText = `${verb} a key concept related to ${topic}.`;
+        const choices = {
+          A: `A comprehensive approach to ${topic}`,
+          B: `A basic understanding of ${topic}`,
+          C: `An alternative method for ${topic}`,
+          D: `A contrasting view of ${topic}`
+        };
+        question = {
+          topic,
+          question_text: questionText,
+          question_type: 'mcq',
+          choices,
+          correct_answer: 'A',
+          bloom_level: bloom,
+          difficulty,
+          knowledge_dimension: bloom === 'remembering' ? 'Factual' : 'Conceptual',
+          created_by: 'ai',
+          approved: false,
+          ai_confidence_score: 0.6,
+          needs_review: true,
+          metadata: { generated_by: 'fallback_template', template_version: '1.0' }
+        };
+      } else {
+        // True/False
+        question = {
+          topic,
+          question_text: `${topic} requires a specific approach in modern practice.`,
+          question_type: 'true_false',
+          correct_answer: 'true',
+          bloom_level: bloom,
+          difficulty,
+          knowledge_dimension: 'Factual',
+          created_by: 'ai',
+          approved: false,
+          ai_confidence_score: 0.6,
+          needs_review: true,
+          metadata: { generated_by: 'fallback_template', template_version: '1.0' }
+        };
+      }
+    }
+    // Applying: MCQ and Fill-in-the-blank
+    else if (bloom === 'applying') {
+      if (i % 2 === 0) {
+        // MCQ
+        const questionText = `${verb} the principles of ${topic} to solve a problem.`;
+        const choices = {
+          A: `Apply systematic methodology`,
+          B: `Use random selection`,
+          C: `Ignore fundamental principles`,
+          D: `Follow arbitrary patterns`
+        };
+        question = {
+          topic,
+          question_text: questionText,
+          question_type: 'mcq',
+          choices,
+          correct_answer: 'A',
+          bloom_level: bloom,
+          difficulty,
+          knowledge_dimension: 'Procedural',
+          created_by: 'ai',
+          approved: false,
+          ai_confidence_score: 0.6,
+          needs_review: true,
+          metadata: { generated_by: 'fallback_template', template_version: '1.0' }
+        };
+      } else {
+        // Fill-in-the-blank
+        question = {
+          topic,
+          question_text: `When applying ${topic}, the most important factor to consider is ____________.`,
+          question_type: 'fill-blank',
+          correct_answer: `systematic approach and methodology`,
+          bloom_level: bloom,
+          difficulty,
+          knowledge_dimension: 'Procedural',
+          created_by: 'ai',
+          approved: false,
+          ai_confidence_score: 0.6,
+          needs_review: true,
+          metadata: { generated_by: 'fallback_template', template_version: '1.0' }
+        };
+      }
+    }
+    // Analyzing and Evaluating: Mix of MCQ and Short Answer
+    else if (['analyzing', 'evaluating'].includes(bloom)) {
+      if (i % 2 === 0) {
+        // MCQ
+        const questionText = `${verb} the effectiveness of different approaches to ${topic}.`;
+        const choices = {
+          A: `Systematic analysis yields better results`,
+          B: `All approaches are equally effective`,
+          C: `Effectiveness cannot be measured`,
+          D: `Traditional methods are always best`
+        };
+        question = {
+          topic,
+          question_text: questionText,
+          question_type: 'mcq',
+          choices,
+          correct_answer: 'A',
+          bloom_level: bloom,
+          difficulty,
+          knowledge_dimension: bloom === 'analyzing' ? 'Conceptual' : 'Metacognitive',
+          created_by: 'ai',
+          approved: false,
+          ai_confidence_score: 0.6,
+          needs_review: true,
+          metadata: { generated_by: 'fallback_template', template_version: '1.0' }
+        };
+      } else {
+        // Short answer
+        question = {
+          topic,
+          question_text: `${verb} the key factors that influence ${topic} in professional practice.`,
+          question_type: 'short_answer',
+          correct_answer: `Key factors include methodology, context, resources, and stakeholder requirements`,
+          bloom_level: bloom,
+          difficulty,
+          knowledge_dimension: 'Metacognitive',
+          created_by: 'ai',
+          approved: false,
+          ai_confidence_score: 0.6,
+          needs_review: true,
+          metadata: { generated_by: 'fallback_template', template_version: '1.0' }
+        };
+      }
+    }
+    // Creating: Essay questions
+    else if (bloom === 'creating') {
+      question = {
+        topic,
+        question_text: `${verb} a comprehensive solution for ${topic} that addresses modern challenges and requirements.`,
+        question_type: 'essay',
+        correct_answer: `Should include: problem analysis, creative solution design, implementation strategy, and evaluation criteria`,
+        bloom_level: bloom,
+        difficulty,
+        knowledge_dimension: 'Metacognitive',
+        created_by: 'ai',
+        approved: false,
+        ai_confidence_score: 0.6,
+        needs_review: true,
+        metadata: { generated_by: 'fallback_template', template_version: '1.0' }
+      };
+    } else {
+      // Fallback to MCQ
+      const questionText = `${verb} a key concept related to ${topic}.`;
+      const choices = {
+        A: `A comprehensive approach to ${topic}`,
+        B: `A basic understanding of ${topic}`,
+        C: `An alternative method for ${topic}`,
+        D: `A contrasting view of ${topic}`
+      };
+      question = {
+        topic,
+        question_text: questionText,
+        question_type: 'mcq',
+        choices,
+        correct_answer: 'A',
+        bloom_level: bloom,
+        difficulty,
+        knowledge_dimension: 'Conceptual',
+        created_by: 'ai',
+        approved: false,
+        ai_confidence_score: 0.6,
+        needs_review: true,
+        metadata: { generated_by: 'fallback_template', template_version: '1.0' }
+      };
+    }
+
+    questions.push(question);
   }
 
   return questions;
