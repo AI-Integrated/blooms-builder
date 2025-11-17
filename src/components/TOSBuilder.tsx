@@ -258,27 +258,62 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   };
 
   const handleGenerateTest = async () => {
-    if (!tosMatrix) return;
+    if (!tosMatrix) {
+      toast.error("TOS data missing. Please generate the matrix first.");
+      return;
+    }
+
+    // Validate TOS data structure
+    if (!tosMatrix.topics || !Array.isArray(tosMatrix.topics)) {
+      toast.error("TOS data is incomplete. Cannot generate test.");
+      return;
+    }
     
     setIsGeneratingTest(true);
     setGenerationProgress(0);
     setGenerationStatus("Initializing test generation...");
     
     try {
+      // Save TOS to database first if not already saved
+      let savedTOSId = tosMatrix.id;
+      if (!savedTOSId || savedTOSId.startsWith('temp-')) {
+        setGenerationStatus("Saving TOS to database...");
+        const { id, ...tosDataWithoutId } = tosMatrix;
+        const savedTOS = await TOS.create(tosDataWithoutId);
+        savedTOSId = savedTOS.id;
+        setTosMatrix({ ...tosMatrix, id: savedTOSId });
+      }
+
       setGenerationProgress(20);
       setGenerationStatus("Analyzing TOS matrix and building criteria...");
       
-      // Build criteria from TOS competencies
-      const criteria: TOSCriteria[] = tosMatrix.competencies.flatMap((comp: any) =>
-        [
-          { topic: comp.topic_name, bloom_level: 'Remembering', knowledge_dimension: 'Factual', difficulty: 'Easy', count: comp.remembering_items || 0 },
-          { topic: comp.topic_name, bloom_level: 'Understanding', knowledge_dimension: 'Conceptual', difficulty: 'Easy', count: comp.understanding_items || 0 },
-          { topic: comp.topic_name, bloom_level: 'Applying', knowledge_dimension: 'Procedural', difficulty: 'Average', count: comp.applying_items || 0 },
-          { topic: comp.topic_name, bloom_level: 'Analyzing', knowledge_dimension: 'Conceptual', difficulty: 'Average', count: comp.analyzing_items || 0 },
-          { topic: comp.topic_name, bloom_level: 'Evaluating', knowledge_dimension: 'Metacognitive', difficulty: 'Difficult', count: comp.evaluating_items || 0 },
-          { topic: comp.topic_name, bloom_level: 'Creating', knowledge_dimension: 'Metacognitive', difficulty: 'Difficult', count: comp.creating_items || 0 },
-        ].filter(c => c.count > 0)
-      );
+      // Build criteria from TOS topics - extract from distribution
+      const criteria: TOSCriteria[] = [];
+      
+      for (const topic of tosMatrix.topics) {
+        const topicDistribution = tosMatrix.distribution?.[topic.name];
+        if (!topicDistribution) continue;
+
+        // Add criteria for each Bloom level that has items
+        if (topicDistribution.remembering?.length > 0) {
+          criteria.push({ topic: topic.name, bloom_level: 'remembering', knowledge_dimension: 'Factual', difficulty: 'easy', count: topicDistribution.remembering.length });
+        }
+        if (topicDistribution.understanding?.length > 0) {
+          criteria.push({ topic: topic.name, bloom_level: 'understanding', knowledge_dimension: 'Conceptual', difficulty: 'easy', count: topicDistribution.understanding.length });
+        }
+        if (topicDistribution.applying?.length > 0) {
+          criteria.push({ topic: topic.name, bloom_level: 'applying', knowledge_dimension: 'Procedural', difficulty: 'average', count: topicDistribution.applying.length });
+        }
+        if (topicDistribution.analyzing?.length > 0) {
+          criteria.push({ topic: topic.name, bloom_level: 'analyzing', knowledge_dimension: 'Conceptual', difficulty: 'average', count: topicDistribution.analyzing.length });
+        }
+        if (topicDistribution.evaluating?.length > 0) {
+          criteria.push({ topic: topic.name, bloom_level: 'evaluating', knowledge_dimension: 'Metacognitive', difficulty: 'difficult', count: topicDistribution.evaluating.length });
+        }
+        if (topicDistribution.creating?.length > 0) {
+          criteria.push({ topic: topic.name, bloom_level: 'creating', knowledge_dimension: 'Metacognitive', difficulty: 'difficult', count: topicDistribution.creating.length });
+        }
+      }
       
       setGenerationProgress(40);
       setGenerationStatus("Querying question bank and generating AI questions...");
@@ -287,14 +322,14 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         subject: tosMatrix.subject || tosMatrix.course,
         course: tosMatrix.course,
         year_section: tosMatrix.year_section,
-        exam_period: tosMatrix.period,
+        exam_period: tosMatrix.exam_period || tosMatrix.period,
         school_year: tosMatrix.school_year,
-        tos_id: tosMatrix.id,
+        tos_id: savedTOSId,
       };
 
       const result = await generateTestFromTOS(
         criteria,
-        `${tosMatrix.course || 'Examination'} - ${tosMatrix.period || 'Test'}`,
+        `${tosMatrix.course || 'Examination'} - ${tosMatrix.exam_period || tosMatrix.period || 'Test'}`,
         testMetadata
       );
       
@@ -306,9 +341,9 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       
       toast.success(`Successfully generated test with ${result.questions.length} questions!`);
       
-      // Redirect to the generated test page
+      // Redirect to the generated test page using correct path
       setTimeout(() => {
-        navigate(`/teacher/generated-test/${result.id}`);
+        navigate(`/teacher/GeneratedTestPage/${result.id}`);
       }, 500);
       
     } catch (error) {
