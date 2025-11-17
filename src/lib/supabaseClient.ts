@@ -217,23 +217,38 @@ export async function getUserProfile() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data, error } = await supabase
+  // Fetch profile
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)
     .single();
 
-  if (error && error.code !== 'PGRST116') throw error;
-  return data;
+  if (profileError && profileError.code !== 'PGRST116') throw profileError;
+
+  // Fetch role from user_roles table
+  const { data: roleData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .order('role', { ascending: true })
+    .limit(1)
+    .single();
+
+  return {
+    ...profile,
+    role: roleData?.role || 'teacher'
+  };
 }
 
-export async function updateUserProfile(updates: { full_name?: string; role?: string }) {
+export async function updateUserProfile(updates: { full_name?: string }) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('User not authenticated');
 
   const { data, error } = await supabase
     .from('profiles')
-    .upsert({ id: user.id, ...updates })
+    .update({ full_name: updates.full_name })
+    .eq('id', user.id)
     .select('*')
     .single();
 
