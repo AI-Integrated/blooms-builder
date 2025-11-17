@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { BookOpen, FileText, BarChart3, Upload } from 'lucide-react';
-import { StandardsPanel } from '@/curriculum/StandardsPanel';
-import { OutcomeMapper } from '@/curriculum/OutcomeMapper';
-import { ComplianceReport } from '@/curriculum/ComplianceReport';
+import { StandardsPanel } from '@/components/curriculum/StandardsPanel';
+import { OutcomeMapper } from '@/components/curriculum/OutcomeMapper';
+import { ComplianceReport } from '@/components/curriculum/ComplianceReport';
+import { OutcomeAlignmentDashboard } from '@/components/curriculum/OutcomeAlignmentDashboard';
 import { useStandards } from '@/hooks/useStandards';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -128,14 +129,18 @@ export default function CurriculumStandards() {
 
       {/* Main Content */}
       <Tabs defaultValue="browse">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="browse">
             <BookOpen className="h-4 w-4 mr-2" />
-            Browse Standards
+            Browse
           </TabsTrigger>
           <TabsTrigger value="mapping">
             <FileText className="h-4 w-4 mr-2" />
             Map Questions
+          </TabsTrigger>
+          <TabsTrigger value="alignment">
+            <BarChart3 className="h-4 w-4 mr-2" />
+            Outcome Alignment
           </TabsTrigger>
           <TabsTrigger value="compliance">
             <BarChart3 className="h-4 w-4 mr-2" />
@@ -143,7 +148,7 @@ export default function CurriculumStandards() {
           </TabsTrigger>
           <TabsTrigger value="import">
             <Upload className="h-4 w-4 mr-2" />
-            Import Standards
+            Import
           </TabsTrigger>
         </TabsList>
 
@@ -216,6 +221,13 @@ export default function CurriculumStandards() {
               />
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="alignment" className="mt-6">
+          <OutcomeAlignmentDashboard 
+            questions={questions}
+            onRefresh={loadQuestions}
+          />
         </TabsContent>
 
         <TabsContent value="compliance" className="mt-6">

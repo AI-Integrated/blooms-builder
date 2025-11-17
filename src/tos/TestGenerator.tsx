@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -9,7 +10,7 @@ import { TestQuestion } from "./GeneratedTest"
 
 interface TestGeneratorProps {
   tosData: TOSData
-  onTestGenerated: (questions: TestQuestion[]) => void
+  onTestGenerated: (testId: string) => void
   onCancel: () => void
 }
 
@@ -21,6 +22,7 @@ interface GenerationStep {
 }
 
 export function TestGenerator({ tosData, onTestGenerated, onCancel }: TestGeneratorProps) {
+  const navigate = useNavigate()
   const [isGenerating, setIsGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
   const [currentStep, setCurrentStep] = useState(0)
@@ -266,44 +268,56 @@ export function TestGenerator({ tosData, onTestGenerated, onCancel }: TestGenera
     setIsGenerating(true)
     setProgress(0)
 
-    for (let i = 0; i < steps.length; i++) {
-      setCurrentStep(i)
-      updateStep(i, 'in-progress')
-      
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      updateStep(i, 'completed')
-      setProgress(((i + 1) / steps.length) * 100)
-    }
-
-    // Generate questions using database + AI fallback
-    const questions = await generateQuestionsFromDatabase()
-    
-    // Save generated test to database
     try {
-      const { supabase } = await import('@/integrations/supabase/client')
-      await supabase
-        .from('generated_tests')
-        .insert({
-          title: `${tosData.description} - ${tosData.examPeriod} Exam`,
-          subject: tosData.course || 'General',
-          instructions: `${tosData.description} - ${tosData.examPeriod} Exam`,
-          items: JSON.stringify(questions) as any,
-          answer_key: JSON.stringify(questions.reduce((acc, q) => {
-            acc[q.id] = q.correctAnswer || q.question
-            return acc
-          }, {} as Record<number, any>)) as any,
-          created_by: 'teacher'
+      for (let i = 0; i < steps.length; i++) {
+        setCurrentStep(i)
+        updateStep(i, 'in-progress')
+        await new Promise(resolve => setTimeout(resolve, 1500))
+        updateStep(i, 'completed')
+        setProgress(((i + 1) / steps.length) * 100)
+      }
+
+      // Generate test using the service
+      const { generateTestFromTOS } = await import('@/services/ai/testGenerationService')
+      const tosCriteria: any[] = []
+      
+      Object.entries(tosData.distribution).forEach(([topicName, topicData]) => {
+        Object.entries(topicData).forEach(([bloomLevel, itemNumbers]) => {
+          if (bloomLevel === 'hours' || bloomLevel === 'total' || !Array.isArray(itemNumbers)) return
+          
+          const difficulty = getDifficultyFromBloom(bloomLevel)
+          tosCriteria.push({
+            topic: topicName,
+            bloom_level: bloomLevel.charAt(0).toUpperCase() + bloomLevel.slice(1),
+            knowledge_dimension: 'conceptual',
+            difficulty: difficulty.toLowerCase(),
+            count: itemNumbers.length
+          })
         })
+      })
+
+      const generatedTest = await generateTestFromTOS(
+        tosCriteria,
+        `${tosData.description} - ${tosData.examPeriod}`,
+        {
+          subject: tosData.course,
+          exam_period: tosData.examPeriod,
+          school_year: tosData.schoolYear,
+          year_section: tosData.yearSection,
+          course: tosData.course,
+          tos_id: null
+        }
+      )
+      
+      setTimeout(() => {
+        setIsGenerating(false)
+        navigate(`/teacher/generated-test/${generatedTest.id}`)
+      }, 500)
     } catch (error) {
-      console.error('Error saving generated test:', error)
-    }
-    
-    setTimeout(() => {
+      console.error('Test generation failed:', error)
       setIsGenerating(false)
-      onTestGenerated(questions)
-    }, 500)
+      updateStep(currentStep, 'error')
+    }
   }
 
   return (

@@ -148,9 +148,9 @@ const TOS = () => {
     setCurrentStep('generating')
   }
 
-  const handleTestGenerated = (questions: TestQuestion[]) => {
-    setTestQuestions(questions)
-    setCurrentStep('test')
+  const handleTestGenerated = (testId: string) => {
+    // Navigation is handled by the TestGenerator component
+    // This callback is kept for compatibility
   }
 
   const handleCancelGeneration = () => {

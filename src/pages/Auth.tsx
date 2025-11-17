@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
+import { useUserRole } from '@/hooks/useUserRole';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,8 +15,20 @@ export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const { signIn, signUp } = useAuth();
+  const { role, loading } = useUserRole();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Redirect authenticated users to their dashboard
+  useEffect(() => {
+    if (loading) return;
+    
+    if (role === 'admin') {
+      navigate('/admin/dashboard', { replace: true });
+    } else if (role === 'teacher') {
+      navigate('/teacher/dashboard', { replace: true });
+    }
+  }, [role, loading, navigate]);
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -36,7 +49,7 @@ export default function Auth() {
         title: "Welcome back!",
         description: "You have successfully signed in.",
       });
-      navigate('/');
+      // Navigation will be handled by the role-based redirect useEffect
     }
   };
 
@@ -70,7 +83,7 @@ export default function Auth() {
         title: "Account created!",
         description: "Welcome to the AI-Integrated TOS System.",
       });
-      navigate('/');
+      // Navigation will be handled by the role-based redirect useEffect
     }
   };
 
