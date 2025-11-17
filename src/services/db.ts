@@ -186,15 +186,16 @@ export const Tests = {
   },
 
   async addVersion(test_id: string, label: string, question_ids: string[], answer_key: any, payload: any) {
+    // Note: test_versions table doesn't exist in current schema, using generated_tests instead
     const { data, error } = await supabase
-      .from('test_versions')
+      .from('generated_tests')
       .insert({ 
-        test_metadata_id: test_id, 
+        parent_test_id: test_id,
         version_label: label, 
-        question_order: question_ids.map(Number), 
-        questions: payload.questions || {},
+        items: payload.questions || {},
         answer_key, 
-        total_points: payload.total_points || 0
+        title: payload.title || 'Test Version',
+        subject: payload.subject
       })
       .select()
       .single();

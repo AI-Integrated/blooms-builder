@@ -45,7 +45,8 @@ class MetricsCollector {
           metric_value: metric.metric_value,
           metric_unit: metric.metric_unit,
           dimensions: metric.dimensions || {},
-          aggregation_period: metric.aggregation_period
+          aggregation_period: metric.aggregation_period,
+          measured_at: new Date().toISOString()
         });
 
       if (error) throw error;
@@ -68,6 +69,7 @@ class MetricsCollector {
           max_response_time: metric.max_response_time,
           error_rate: metric.error_rate,
           throughput: metric.throughput,
+          measured_at: new Date().toISOString(),
           measurement_period_minutes: metric.measurement_period_minutes || 60
         });
 
