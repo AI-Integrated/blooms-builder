@@ -53,7 +53,8 @@ serve(async (req) => {
     // 2. Generate embedding using OpenAI
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openaiKey) {
-      throw new Error('OpenAI API key not configured');
+      console.error('OpenAI API key not configured');
+      throw new Error('Service temporarily unavailable');
     }
 
     const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {

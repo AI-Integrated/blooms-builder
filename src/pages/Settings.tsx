@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Save, User, Bell, Brain, Palette } from "lucide-react";
 
@@ -32,38 +33,77 @@ interface UserSettings {
   };
 }
 
+const defaultSettings: UserSettings = {
+  notifications: {
+    testNotifications: true,
+    aiUpdates: true,
+    collaborationAlerts: false
+  },
+  ai: {
+    autoClassify: true,
+    confidenceThreshold: 0.8,
+    autoApprove: false
+  },
+  display: {
+    theme: 'system',
+    compactMode: false
+  },
+  profile: {
+    fullName: '',
+    institution: '',
+    subject: ''
+  }
+};
+
 const Settings = () => {
   const { user, profile } = useAuth();
-  const [settings, setSettings] = useState<UserSettings>({
-    notifications: {
-      testNotifications: true,
-      aiUpdates: true,
-      collaborationAlerts: false
-    },
-    ai: {
-      autoClassify: true,
-      confidenceThreshold: 0.8,
-      autoApprove: false
-    },
-    display: {
-      theme: 'system',
-      compactMode: false
-    },
-    profile: {
-      fullName: profile?.full_name || '',
-      institution: '',
-      subject: ''
-    }
-  });
+  const [settings, setSettings] = useState<UserSettings>(defaultSettings);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load settings from localStorage or API
-    const savedSettings = localStorage.getItem('userSettings');
-    if (savedSettings) {
-      setSettings(prev => ({ ...prev, ...JSON.parse(savedSettings) }));
+    loadSettings();
+  }, [user]);
+
+  const loadSettings = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('settings')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data?.settings) {
+        const loadedSettings = data.settings as any;
+        setSettings({
+          ...defaultSettings,
+          ...loadedSettings,
+          profile: {
+            ...defaultSettings.profile,
+            fullName: profile?.full_name || '',
+            ...loadedSettings.profile
+          }
+        });
+      } else {
+        setSettings({
+          ...defaultSettings,
+          profile: {
+            ...defaultSettings.profile,
+            fullName: profile?.full_name || ''
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      toast.error('Failed to load settings');
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  };
 
   const updateSettings = (section: keyof UserSettings, key: string, value: any) => {
     setSettings(prev => ({
@@ -76,12 +116,22 @@ const Settings = () => {
   };
 
   const handleSave = async () => {
+    if (!user) return;
+    
     setSaving(true);
     try {
-      // Save to localStorage (in a real app, this would be an API call)
-      localStorage.setItem('userSettings', JSON.stringify(settings));
+      const { error } = await supabase
+        .from('user_settings')
+        .upsert([{
+          user_id: user.id,
+          settings: settings as any
+        }]);
+
+      if (error) throw error;
+      
       toast.success('Settings saved successfully!');
     } catch (error) {
+      console.error('Error saving settings:', error);
       toast.error('Failed to save settings');
     } finally {
       setSaving(false);
@@ -90,28 +140,25 @@ const Settings = () => {
 
   const resetToDefaults = () => {
     setSettings({
-      notifications: {
-        testNotifications: true,
-        aiUpdates: true,
-        collaborationAlerts: false
-      },
-      ai: {
-        autoClassify: true,
-        confidenceThreshold: 0.8,
-        autoApprove: false
-      },
-      display: {
-        theme: 'system',
-        compactMode: false
-      },
+      ...defaultSettings,
       profile: {
-        fullName: profile?.full_name || '',
-        institution: '',
-        subject: ''
+        ...defaultSettings.profile,
+        fullName: profile?.full_name || ''
       }
     });
     toast.info('Settings reset to defaults');
   };
+
+  if (loading) {
+    return (
+      <div className="animate-slide-up space-y-8">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Settings</h2>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-slide-up space-y-8">

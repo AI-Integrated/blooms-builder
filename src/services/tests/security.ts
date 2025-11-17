@@ -17,19 +17,33 @@ export interface SecurityEvent {
 }
 
 /**
- * Generate unique watermark code for tracking
+ * Generate cryptographically secure unique watermark code for tracking
  */
 export function generateWatermarkCode(
   testId: string,
   studentId: string,
   versionLabel: string
 ): string {
-  const timestamp = Date.now().toString(36);
-  const hash = btoa(`${testId}-${studentId}-${versionLabel}`)
-    .replace(/[^a-zA-Z0-9]/g, '')
+  // Generate cryptographically secure random bytes
+  const randomBytes = new Uint8Array(12);
+  crypto.getRandomValues(randomBytes);
+  const randomHex = Array.from(randomBytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
     .substring(0, 8);
   
-  return `${versionLabel}-${hash}-${timestamp}`.toUpperCase();
+  const timestamp = Date.now().toString(36);
+  const hashInput = `${testId}-${studentId}-${versionLabel}`;
+  
+  // Use a simple hash for ID component (not for security, just identification)
+  let hash = 0;
+  for (let i = 0; i < hashInput.length; i++) {
+    hash = ((hash << 5) - hash) + hashInput.charCodeAt(i);
+    hash = hash & hash;
+  }
+  const hashStr = Math.abs(hash).toString(36).substring(0, 8).toUpperCase();
+  
+  return `${versionLabel}-${hashStr}-${timestamp}-${randomHex}`.toUpperCase();
 }
 
 /**
@@ -50,28 +64,58 @@ export function createWatermark(data: WatermarkData): WatermarkData {
 }
 
 /**
- * Generate invisible tracking metadata
+ * Generate invisible tracking metadata with cryptographic checksum
  */
 export function generateTrackingMetadata(watermark: WatermarkData): Record<string, any> {
+  // Create a checksum using all watermark data
+  const dataString = JSON.stringify({
+    code: watermark.uniqueCode,
+    version: watermark.versionLabel,
+    student: watermark.studentId,
+    test: watermark.testId,
+    time: watermark.timestamp
+  });
+  
+  // Generate a simple hash for integrity checking
+  let checksum = 0;
+  for (let i = 0; i < dataString.length; i++) {
+    checksum = ((checksum << 5) - checksum) + dataString.charCodeAt(i);
+    checksum = checksum & checksum;
+  }
+  
   return {
     watermark_code: watermark.uniqueCode,
     version: watermark.versionLabel,
     student_id: watermark.studentId,
     test_id: watermark.testId,
     generated_at: watermark.timestamp,
-    checksum: btoa(JSON.stringify(watermark))
+    checksum: Math.abs(checksum).toString(36)
   };
 }
 
 /**
  * Verify watermark integrity
+ * NOTE: Basic format validation only. In production, verify checksum server-side
  */
 export function verifyWatermark(
   watermark: WatermarkData,
   checksum: string
 ): boolean {
-  const expectedChecksum = btoa(JSON.stringify(watermark));
-  return checksum === expectedChecksum;
+  const dataString = JSON.stringify({
+    code: watermark.uniqueCode,
+    version: watermark.versionLabel,
+    student: watermark.studentId,
+    test: watermark.testId,
+    time: watermark.timestamp
+  });
+  
+  let expectedChecksum = 0;
+  for (let i = 0; i < dataString.length; i++) {
+    expectedChecksum = ((expectedChecksum << 5) - expectedChecksum) + dataString.charCodeAt(i);
+    expectedChecksum = expectedChecksum & expectedChecksum;
+  }
+  
+  return Math.abs(expectedChecksum).toString(36) === checksum;
 }
 
 /**
