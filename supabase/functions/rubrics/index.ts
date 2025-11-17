@@ -1,33 +1,31 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+}
 
-// Input validation schemas
-const RubricCriterionSchema = z.object({
-  name: z.string().min(1, "Criterion name is required").max(200, "Criterion name must be less than 200 characters"),
-  weight: z.number().min(0, "Weight must be non-negative").max(10, "Weight must be less than 10"),
-  max_score: z.number().min(0, "Max score must be non-negative").max(1000, "Max score must be less than 1000"),
-  order_index: z.number().int().min(0).optional()
-});
+interface RubricCriterion {
+  name: string;
+  weight: number;
+  max_score: number;
+  order_index?: number;
+}
 
-const CreateRubricSchema = z.object({
-  title: z.string().min(1, "Title is required").max(200, "Title must be less than 200 characters"),
-  description: z.string().max(5000, "Description must be less than 5000 characters").optional(),
-  criteria: z.array(RubricCriterionSchema).min(1, "At least one criterion is required").max(50, "Maximum 50 criteria per rubric")
-});
+interface CreateRubricRequest {
+  title: string;
+  description?: string;
+  criteria: RubricCriterion[];
+}
 
-const ScoreSubmissionSchema = z.object({
-  question_id: z.string().uuid("Invalid question ID"),
-  test_id: z.string().uuid("Invalid test ID").optional(),
-  student_id: z.string().uuid("Invalid student ID").optional(),
-  student_name: z.string().min(1).max(200).optional(),
-  scores: z.record(z.string(), z.number().min(0)),
-  comments: z.string().max(5000).optional()
-});
+interface ScoreSubmissionRequest {
+  question_id: string;
+  test_id?: string;
+  student_id?: string;
+  student_name?: string;
+  scores: Record<string, number>; // criterion_id -> score
+  comments?: string;
+}
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -112,21 +110,14 @@ Deno.serve(async (req) => {
       }
 
       case 'POST': {
-        // Parse and validate input
-        const rawBody = await req.json();
-        const validationResult = CreateRubricSchema.safeParse(rawBody);
-        
-        if (!validationResult.success) {
+        const body: CreateRubricRequest = await req.json()
+
+        if (!body.title || !body.criteria || body.criteria.length === 0) {
           return new Response(
-            JSON.stringify({ 
-              error: 'Invalid input', 
-              details: validationResult.error.errors 
-            }),
+            JSON.stringify({ error: 'Title and criteria are required' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          )
         }
-        
-        const body = validationResult.data;
 
         // Get current user
         const { data: { user }, error: userError } = await supabase.auth.getUser()
@@ -189,24 +180,10 @@ Deno.serve(async (req) => {
           return new Response(
             JSON.stringify({ error: 'Rubric ID required for update' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          )
         }
 
-        // Parse and validate input
-        const rawBody = await req.json();
-        const validationResult = CreateRubricSchema.safeParse(rawBody);
-        
-        if (!validationResult.success) {
-          return new Response(
-            JSON.stringify({ 
-              error: 'Invalid input', 
-              details: validationResult.error.errors 
-            }),
-            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-        
-        const body = validationResult.data;
+        const body: CreateRubricRequest = await req.json()
 
         // Update rubric
         const { data: rubric, error: rubricError } = await supabase

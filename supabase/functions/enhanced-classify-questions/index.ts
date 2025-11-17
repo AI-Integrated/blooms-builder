@@ -1,33 +1,11 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
-
-// Input validation schemas
-const QuestionInputSchema = z.object({
-  id: z.string().uuid().optional(),
-  text: z.string().min(10, "Question text must be at least 10 characters").max(5000, "Question text must be less than 5000 characters"),
-  type: z.enum(['mcq', 'true_false', 'essay', 'short_answer']),
-  topic: z.string().min(1).max(200).optional(),
-  choices: z.record(z.string()).optional()
-});
-
-const OptionsSchema = z.object({
-  autoApproveThreshold: z.number().min(0).max(1).optional(),
-  similarityThreshold: z.number().min(0).max(1).optional(),
-  check_similarity: z.boolean().optional()
-}).optional();
-
-const RequestSchema = z.object({
-  questions: z.array(QuestionInputSchema).min(1, "At least one question is required").max(100, "Maximum 100 questions per request"),
-  options: OptionsSchema,
-  saveToDatabase: z.boolean().optional()
-});
 
 type EnhancedClassificationInput = {
   text: string;
@@ -229,24 +207,11 @@ serve(async (req) => {
   }
 
   try {
-    // Parse and validate input
-    const rawInput = await req.json();
-    const validationResult = RequestSchema.safeParse(rawInput);
+    const { questions, options = {}, saveToDatabase = false } = await req.json();
     
-    if (!validationResult.success) {
-      return new Response(
-        JSON.stringify({ 
-          error: 'Invalid input', 
-          details: validationResult.error.errors 
-        }), 
-        { 
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        }
-      );
+    if (!Array.isArray(questions)) {
+      throw new Error('Expected array of questions');
     }
-    
-    const { questions, options = {}, saveToDatabase = false } = validationResult.data;
 
     // Initialize Supabase client if saving to database
     let supabaseClient;

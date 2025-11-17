@@ -1,17 +1,15 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Input validation schema
-const similarityRequestSchema = z.object({
-  question_id: z.string().uuid("Invalid question ID format"),
-  question_text: z.string().min(10).max(5000).optional()
-});
+interface SimilarityRequest {
+  question_id: string;
+  question_text?: string;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -21,38 +19,23 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    // Validate authentication
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Missing authorization header' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
-    
-    if (authError || !user) {
-      console.error('Authentication failed:', authError);
+    const { question_id, question_text } = await req.json() as SimilarityRequest;
+
+    if (!question_id) {
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'question_id is required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Parse and validate input
-    const rawInput = await req.json();
-    const { question_id, question_text } = similarityRequestSchema.parse(rawInput);
-
     console.log(`Processing similarity update for question: ${question_id}`);
 
-    // Get question text if not provided
+    // 1. Get question text if not provided
     let text = question_text;
     if (!text) {
       const { data: question, error: fetchError } = await supabaseClient
@@ -67,7 +50,7 @@ serve(async (req) => {
       text = question.question_text;
     }
 
-    // Generate embedding using OpenAI
+    // 2. Generate embedding using OpenAI
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openaiKey) {
       throw new Error('OpenAI API key not configured');
@@ -94,7 +77,7 @@ serve(async (req) => {
     const embeddingData = await embeddingResponse.json();
     const embedding = embeddingData.data[0].embedding;
 
-    // Store embedding in question
+    // 3. Store embedding in question
     const { error: updateError } = await supabaseClient
       .from('questions')
       .update({ 
@@ -112,7 +95,7 @@ serve(async (req) => {
       throw updateError;
     }
 
-    // Find similar questions
+    // 4. Find similar questions
     const { data: allQuestions, error: queryError } = await supabaseClient
       .from('questions')
       .select('id, question_text, semantic_vector, topic, bloom_level, difficulty')
@@ -159,7 +142,7 @@ serve(async (req) => {
       }
     }
 
-    // Store similarity pairs
+    // 5. Store similarity pairs
     if (similarities.length > 0) {
       const pairs = similarities.map(s => ({
         question1_id: question_id,
@@ -182,7 +165,7 @@ serve(async (req) => {
 
     const duration = Date.now() - startTime;
     
-    // Log metrics
+    // 6. Log metrics
     await supabaseClient.rpc('log_classification_metric', {
       p_question_id: question_id,
       p_confidence: similarities.length > 0 ? similarities[0].similarity_score : 0,
@@ -204,20 +187,6 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in update-semantic:', error);
-    
-    if (error instanceof z.ZodError) {
-      return new Response(
-        JSON.stringify({ 
-          error: 'Invalid input', 
-          details: error.errors 
-        }), 
-        { 
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      );
-    }
-    
     return new Response(
       JSON.stringify({ 
         error: error instanceof Error ? error.message : 'Unknown error',
