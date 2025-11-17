@@ -22,6 +22,7 @@ interface Question {
   difficulty: string;
   topic: string;
   knowledge_dimension: string;
+  created_by: string;
 }
 
 export const CollaborativeQuestionBank: React.FC = () => {
@@ -154,7 +155,8 @@ export const CollaborativeQuestionBank: React.FC = () => {
     setIsCreating(false);
   };
 
-  const startCreating = () => {
+  const startCreating = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
     setEditingQuestion({
       question_text: '',
       question_type: 'multiple_choice',
@@ -163,7 +165,8 @@ export const CollaborativeQuestionBank: React.FC = () => {
       bloom_level: 'remembering',
       difficulty: 'easy',
       topic: '',
-      knowledge_dimension: 'factual'
+      knowledge_dimension: 'factual',
+      created_by: user?.id || ''
     });
     setIsCreating(true);
   };

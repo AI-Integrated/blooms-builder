@@ -18,6 +18,9 @@ import { EdgeFunctions } from "@/services/edgeFunctions";
 import { useRealtime } from "@/hooks/useRealtime";
 import { usePresence } from "@/hooks/usePresence";
 import { buildTestConfigFromTOS } from "@/utils/testVersions";
+import { SufficiencyAnalysisPanel } from "@/components/analysis/SufficiencyAnalysisPanel";
+import { generateTestFromTOS, TOSCriteria } from "@/services/ai/testGenerationService";
+import { useNavigate } from "react-router-dom";
 
 const topicSchema = z.object({
   topic: z.string().min(1, "Topic name is required"),
@@ -53,6 +56,7 @@ interface TOSBuilderProps {
 }
 
 export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
+  const navigate = useNavigate();
   const [topics, setTopics] = useState([{ topic: "", hours: 0 }]);
   const [tosMatrix, setTosMatrix] = useState<any>(null);
   const [showMatrix, setShowMatrix] = useState(false);
@@ -211,20 +215,16 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   const analyzeSufficiency = async (matrix: any) => {
     setIsAnalyzing(true);
     try {
-      const analysis = await Analytics.getQuestionBankSufficiency(matrix.id);
+      const { analyzeTOSSufficiency } = await import('@/services/analysis/sufficiencyAnalysis');
+      const analysis = await analyzeTOSSufficiency(matrix);
       setSufficiencyAnalysis(analysis);
       
-      // Calculate if sufficient
-      const totalShortage = Object.values(analysis).reduce((total: number, topicData: any) => {
-        return total + Object.values(topicData as Record<string, any>).reduce((topicTotal: number, bloomData: any) => {
-          return topicTotal + (Number(bloomData.shortage) || 0);
-        }, 0);
-      }, 0);
-      
-      if (totalShortage > 0) {
-        toast.warning(`Question bank has ${totalShortage} missing questions across topics.`);
+      if (analysis.overallStatus === 'pass') {
+        toast.success("Question bank is sufficient for test generation!");
+      } else if (analysis.overallStatus === 'warning') {
+        toast.warning("Question bank has marginal coverage. Consider adding more questions.");
       } else {
-        toast.success("Question bank is sufficient for this TOS!");
+        toast.error("Insufficient questions in bank. Please add more approved questions.");
       }
     } catch (error) {
       console.error('Error analyzing TOS sufficiency:', error);
@@ -266,51 +266,54 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     
     try {
       setGenerationProgress(20);
-      setGenerationStatus("Building test configuration from TOS...");
+      setGenerationStatus("Analyzing TOS matrix and building criteria...");
       
-      const testConfig = buildTestConfigFromTOS(tosMatrix);
+      // Build criteria from TOS competencies
+      const criteria: TOSCriteria[] = tosMatrix.competencies.flatMap((comp: any) =>
+        [
+          { topic: comp.topic_name, bloom_level: 'Remembering', knowledge_dimension: 'Factual', difficulty: 'Easy', count: comp.remembering_items || 0 },
+          { topic: comp.topic_name, bloom_level: 'Understanding', knowledge_dimension: 'Conceptual', difficulty: 'Easy', count: comp.understanding_items || 0 },
+          { topic: comp.topic_name, bloom_level: 'Applying', knowledge_dimension: 'Procedural', difficulty: 'Average', count: comp.applying_items || 0 },
+          { topic: comp.topic_name, bloom_level: 'Analyzing', knowledge_dimension: 'Conceptual', difficulty: 'Average', count: comp.analyzing_items || 0 },
+          { topic: comp.topic_name, bloom_level: 'Evaluating', knowledge_dimension: 'Metacognitive', difficulty: 'Difficult', count: comp.evaluating_items || 0 },
+          { topic: comp.topic_name, bloom_level: 'Creating', knowledge_dimension: 'Metacognitive', difficulty: 'Difficult', count: comp.creating_items || 0 },
+        ].filter(c => c.count > 0)
+      );
       
       setGenerationProgress(40);
-      setGenerationStatus("Generating questions from TOS matrix...");
+      setGenerationStatus("Querying question bank and generating AI questions...");
       
-      const result = await EdgeFunctions.generateQuestionsFromTOS(
-        testConfig,
-        (status, progress) => {
-          setGenerationStatus(status);
-          setGenerationProgress(40 + (progress * 0.4)); // 40-80% range
-        }
+      const testMetadata = {
+        subject: tosMatrix.subject || tosMatrix.course,
+        course: tosMatrix.course,
+        year_section: tosMatrix.year_section,
+        exam_period: tosMatrix.period,
+        school_year: tosMatrix.school_year,
+        tos_id: tosMatrix.id,
+      };
+
+      const result = await generateTestFromTOS(
+        criteria,
+        `${tosMatrix.course || 'Examination'} - ${tosMatrix.period || 'Test'}`,
+        testMetadata
       );
       
       setGenerationProgress(90);
-      setGenerationStatus("Finalizing test generation...");
-      
-      // Save generated questions to database if they're new AI questions
-      if (result.statistics.ai_generated > 0) {
-        const aiQuestions = result.questions.filter((q: any) => q.created_by === 'ai');
-        // These would be inserted by the edge function or here
-      }
+      setGenerationStatus("Test saved successfully!");
       
       setGenerationProgress(100);
-      setGenerationStatus("Test generation complete!");
+      setGenerationStatus("Redirecting to test preview...");
       
-      toast.success(`Successfully generated ${result.questions.length} questions!`);
+      toast.success(`Successfully generated test with ${result.questions.length} questions!`);
       
-      if (result.statistics.ai_generated > 0) {
-        toast.info(`Generated ${result.statistics.ai_generated} new AI questions to fill gaps`);
-      }
+      // Redirect to the generated test page
+      setTimeout(() => {
+        navigate(`/teacher/generated-test/${result.id}`);
+      }, 500);
       
-      if (result.generation_log.some((log: any) => log.generated > 0)) {
-        setTimeout(() => {
-          const generatedTopics = result.generation_log
-            .filter((log: any) => log.generated > 0)
-            .map((log: any) => `${log.topic} (${log.generated} questions)`)
-            .join(', ');
-          toast.warning(`Generated questions for: ${generatedTopics}`);
-        }, 1000);
-      }
     } catch (error) {
       console.error('Error generating test:', error);
-      toast.error('Failed to generate test. Please try again.');
+      toast.error(error instanceof Error ? error.message : 'Failed to generate test. Please try again.');
     } finally {
       setIsGeneratingTest(false);
       setTimeout(() => {
@@ -340,47 +343,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         
         {/* Sufficiency Analysis */}
         {sufficiencyAnalysis && (
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Target className="w-5 h-5" />
-                Question Bank Analysis
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {Object.entries(sufficiencyAnalysis).map(([topic, bloomData]: [string, any]) => (
-                <div key={topic} className="mb-4">
-                  <h4 className="font-semibold mb-2">{topic}</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
-                    {Object.entries(bloomData).map(([bloom, data]: [string, any]) => (
-                      <div key={bloom} className="flex justify-between items-center p-2 border rounded">
-                        <span className="capitalize">{bloom}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-green-600">{data.available}</span>
-                          <span>/</span>
-                          <span className="text-blue-600">{data.needed}</span>
-                          {data.shortage > 0 && (
-                            <span className="text-red-600">(-{data.shortage})</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              
-              {Object.values(sufficiencyAnalysis).some((topicData: any) => 
-                Object.values(topicData).some((bloomData: any) => bloomData.shortage > 0)
-              ) && (
-                <Alert>
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    Some topics have insufficient questions. AI will generate questions to fill gaps during test creation.
-                  </AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
+          <SufficiencyAnalysisPanel analysis={sufficiencyAnalysis} />
         )}
         
         {/* Generate Test Section */}
