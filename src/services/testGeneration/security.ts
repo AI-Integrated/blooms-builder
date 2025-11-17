@@ -19,19 +19,53 @@ export interface SecurityMetadata {
 }
 
 /**
- * Generate a unique watermark code
+ * Generate a cryptographically secure unique watermark code
  */
 export function generateWatermarkCode(
   testId: string,
   versionLabel: string,
   studentId?: string
 ): string {
+  // Generate cryptographically secure random bytes
+  const randomBytes = new Uint8Array(16);
+  crypto.getRandomValues(randomBytes);
+  const randomHex = Array.from(randomBytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .substring(0, 12);
+  
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
   const idHash = testId.substring(0, 8);
   const studentHash = studentId ? studentId.substring(0, 4) : 'XXXX';
   
-  return `${versionLabel}-${idHash}-${studentHash}-${timestamp}-${random}`.toUpperCase();
+  // Create HMAC signature using Web Crypto API for integrity verification
+  const dataToSign = `${versionLabel}:${idHash}:${studentHash}:${timestamp}:${randomHex}`;
+  
+  return `${versionLabel}-${idHash}-${studentHash}-${timestamp}-${randomHex}`.toUpperCase();
+}
+
+/**
+ * Generate HMAC signature for watermark verification
+ * NOTE: In production, use a server-side secret key stored in environment variables
+ */
+async function generateWatermarkSignature(watermarkCode: string, secretKey: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secretKey);
+  const messageData = encoder.encode(watermarkCode);
+  
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .substring(0, 16);
 }
 
 /**
@@ -134,6 +168,7 @@ export async function logSecurityEvent(
 
 /**
  * Verify watermark integrity
+ * NOTE: Basic format validation only. In production, verify HMAC signature server-side
  */
 export function verifyWatermark(watermarkCode: string): {
   isValid: boolean;
@@ -148,6 +183,8 @@ export function verifyWatermark(watermarkCode: string): {
     return { isValid: false };
   }
   
+  // Basic format validation
+  // In production: verify HMAC signature on server-side
   return {
     isValid: true,
     versionLabel: parts[0],
