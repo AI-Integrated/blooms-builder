@@ -252,10 +252,40 @@ serve(async (req) => {
   let errorType = '';
 
   try {
-    const payload: ClassificationInput[] = await req.json();
+    // Parse and validate request body
+    let payload: ClassificationInput[];
+    
+    try {
+      const body = await req.text();
+      console.log('Received body:', body ? body.substring(0, 200) : 'empty');
+      
+      if (!body || body.trim() === '') {
+        throw new Error('Request body is empty');
+      }
+      
+      payload = JSON.parse(body);
+    } catch (parseError) {
+      const message = parseError instanceof Error ? parseError.message : 'Invalid JSON';
+      console.error('JSON parse error:', message);
+      throw new Error(`Invalid request body: ${message}`);
+    }
     
     if (!Array.isArray(payload)) {
       throw new Error('Expected array of classification inputs');
+    }
+    
+    if (payload.length === 0) {
+      throw new Error('Empty array provided');
+    }
+    
+    // Validate each input
+    for (const item of payload) {
+      if (!item.text || typeof item.text !== 'string') {
+        throw new Error('Each item must have a "text" field');
+      }
+      if (!item.type || !['mcq', 'true_false', 'essay', 'short_answer'].includes(item.type)) {
+        throw new Error('Each item must have a valid "type" field');
+      }
     }
 
     const results: ClassificationOutput[] = payload.map(({ text, type, topic }) => {
