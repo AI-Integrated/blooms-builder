@@ -110,6 +110,7 @@ export default function BulkImport({
       'application/pdf': ['.pdf'],
     },
     multiple: false,
+    // Removed maxSize to allow unlimited file sizes
   });
 
   const previewCSV = (file: File) => {
@@ -250,6 +251,7 @@ export default function BulkImport({
       setCurrentStep('Classifying questions with AI...');
 
       // Enhanced AI classification with confidence scoring
+      let classificationMethod = 'AI';
       try {
         const classificationInput = normalizedData.map(q => ({
           text: q.question_text,
@@ -283,10 +285,13 @@ export default function BulkImport({
 
         // Store classification results for detailed view
         setClassificationResults(classifications);
-
+        toast.success('AI classification completed successfully');
         setProgress(70);
       } catch (aiError) {
-        console.warn('AI classification failed, using fallback:', aiError);
+        console.warn('AI classification unavailable, using rule-based classification:', aiError);
+        classificationMethod = 'rule-based';
+        toast.info('Using rule-based classification (AI unavailable)');
+        setCurrentStep('Using rule-based classification...');
         
         normalizedData.forEach((question) => {
           if (!question.bloom_level) {
@@ -305,6 +310,7 @@ export default function BulkImport({
           question.ai_confidence_score = 0.6;
           question.needs_review = true;
         });
+        setProgress(70);
       }
 
       setProgress(90);
@@ -509,7 +515,8 @@ export default function BulkImport({
       setProgress(40);
       setCurrentStep('Classifying questions with AI...');
 
-      // Classify questions using AI
+      // Classify questions using AI with fallback to rule-based
+      let classificationMethod = 'AI';
       try {
         const classificationInput = normalizedData.map(q => ({
           text: q.question_text,
@@ -542,15 +549,15 @@ export default function BulkImport({
         });
 
         setProgress(60);
+        toast.success('AI classification completed successfully');
         setCurrentStep('AI classification completed successfully');
       } catch (aiError) {
-        console.warn('AI classification failed, using fallback:', aiError);
-        toast.warning(
-          'AI classification unavailable, using rule-based classification'
-        );
+        console.warn('AI classification unavailable, using rule-based classification:', aiError);
+        classificationMethod = 'rule-based';
+        toast.info('Using rule-based classification (AI unavailable)');
 
         setProgress(50);
-        setCurrentStep('Applying fallback classification...');
+        setCurrentStep('Applying rule-based classification...');
 
         // Fallback to local classification
         normalizedData.forEach((question) => {
@@ -572,7 +579,7 @@ export default function BulkImport({
         });
 
         setProgress(60);
-        setCurrentStep('Fallback classification completed');
+        setCurrentStep('Rule-based classification completed');
       }
 
       setProgress(80);
