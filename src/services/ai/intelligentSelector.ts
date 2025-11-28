@@ -121,7 +121,7 @@ export class IntelligentQuestionSelector {
   /**
    * Select non-redundant questions using semantic similarity
    */
-  private selectNonRedundant(questions: Question[], count: number): Question[] {
+  selectNonRedundant(questions: Question[], count: number): Question[] {
     if (questions.length <= count) {
       return questions;
     }

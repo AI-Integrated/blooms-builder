@@ -40,12 +40,31 @@ export interface LearningCompetency {
 
 export const TOS = {
   async create(payload: Omit<TOSEntry, 'id' | 'created_at' | 'updated_at'>) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError) {
+      console.error("❌ Auth error:", authError);
+      throw new Error(`Authentication failed: ${authError.message}`);
+    }
+    
+    if (!user) {
+      throw new Error("User not authenticated - please log in again");
+    }
+
+    console.log("📝 Creating TOS entry for user:", user.id);
+    
     const tosData = {
       ...payload,
       created_by: 'teacher',
-      owner: user?.id
+      owner: user.id
     };
+    
+    console.log("📦 TOS data to insert:", {
+      title: tosData.title,
+      course: tosData.course,
+      total_items: tosData.total_items,
+      owner: tosData.owner
+    });
     
     const { data, error } = await supabase
       .from("tos_entries")
@@ -53,7 +72,31 @@ export const TOS = {
       .select()
       .single();
     
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Database insert error:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
+      
+      // Provide specific error messages based on error code
+      if (error.code === '42501') {
+        throw new Error(`Permission denied: User does not have permission to create TOS. Please ensure you have 'teacher' or 'admin' role assigned.`);
+      } else if (error.code === '23505') {
+        throw new Error(`Duplicate entry: A TOS with this information already exists.`);
+      } else if (error.code === '23502') {
+        throw new Error(`Missing required field: ${error.message}`);
+      }
+      
+      throw new Error(`Failed to save TOS: ${error.message}`);
+    }
+    
+    if (!data) {
+      throw new Error("TOS created but no data returned from database");
+    }
+    
+    console.log("✅ TOS created successfully:", data.id);
     return data;
   },
 
