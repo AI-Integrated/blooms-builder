@@ -43,13 +43,23 @@ export const useAuthState = () => {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          // Create a default profile for now
-          setProfile({
-            id: session.user.id,
-            full_name: session.user.user_metadata?.full_name || 'User',
-            role: session.user.email === 'demonstration595@gmail.com' ? 'admin' : 'teacher',
-            created_at: new Date().toISOString()
-          });
+          // Fetch user profile from database (role determined by user_roles table)
+          setTimeout(() => {
+            supabase
+              .from('profiles')
+              .select('id, full_name')
+              .eq('id', session.user.id)
+              .single()
+              .then(({ data }) => {
+                if (data) {
+                  setProfile({
+                    ...data,
+                    role: 'teacher', // Actual role fetched by useUserRole hook
+                    created_at: new Date().toISOString()
+                  });
+                }
+              });
+          }, 0);
         } else {
           setProfile(null);
         }

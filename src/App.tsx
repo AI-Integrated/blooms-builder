@@ -92,6 +92,7 @@ const App = () => {
                         <Route path="my-tests" element={<MyTests />} />
                         <Route path="test/:testId" element={<TestPreview />} />
                         <Route path="generated-test/:testId" element={<GeneratedTestPage />} />
+                        <Route path="preview-test/:testId" element={<GeneratedTestPage />} />
                         <Route path="history" element={<TeacherHistory />} />
                         <Route path="reports" element={<TeacherReports />} />
                         <Route path="export" element={<ProfessionalExport />} />

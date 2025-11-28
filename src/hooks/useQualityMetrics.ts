@@ -7,8 +7,14 @@ import { automatedMetrics } from '@/services/quality/automatedMetrics';
  */
 export function useQualityMetrics() {
   useEffect(() => {
-    // Start automated metrics collection (every 5 minutes)
-    automatedMetrics.start(5);
+    // Only run metrics in production, not during development
+    if (import.meta.env.DEV) {
+      console.log('⏭️ Skipping automated metrics in development mode');
+      return;
+    }
+    
+    // Start automated metrics collection (every 30 minutes to reduce load)
+    automatedMetrics.start(30);
 
     // Cleanup on unmount
     return () => {
