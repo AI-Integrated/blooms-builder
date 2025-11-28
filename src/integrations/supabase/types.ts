@@ -2054,6 +2054,7 @@ export type Database = {
         Args: { p_question_id: string; p_test_id: string }
         Returns: undefined
       }
+      validate_tos_exists: { Args: { p_tos_id: string }; Returns: boolean }
       validate_version_balance: {
         Args: { p_parent_test_id: string }
         Returns: {

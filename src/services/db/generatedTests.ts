@@ -25,6 +25,8 @@ export interface GeneratedTest {
 export const GeneratedTests = {
   async create(payload: Omit<GeneratedTest, 'id' | 'created_at'>) {
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    
     const testData = {
       title: payload.title,
       subject: payload.subject,
@@ -41,7 +43,8 @@ export const GeneratedTests = {
       shuffle_questions: payload.shuffle_questions,
       shuffle_choices: payload.shuffle_choices,
       version_label: payload.version_label,
-      version_number: payload.version_number
+      version_number: payload.version_number,
+      created_by: user.id // Use UUID
     };
     
     const { data, error } = await supabase
@@ -56,6 +59,8 @@ export const GeneratedTests = {
 
   async createVersion(payload: Omit<GeneratedTest, 'id' | 'created_at'>) {
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    
     const testData = {
       title: payload.title,
       subject: payload.subject,
@@ -72,7 +77,8 @@ export const GeneratedTests = {
       shuffle_questions: payload.shuffle_questions,
       shuffle_choices: payload.shuffle_choices,
       version_label: payload.version_label,
-      version_number: payload.version_number
+      version_number: payload.version_number,
+      created_by: user.id // Use UUID
     };
     
     const { data, error } = await supabase
@@ -87,6 +93,8 @@ export const GeneratedTests = {
 
   async createMultipleVersions(configs: Omit<GeneratedTest, 'id' | 'created_at'>[]) {
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    
     const testDataArray = configs.map(config => ({
       title: config.title,
       subject: config.subject,
@@ -103,7 +111,8 @@ export const GeneratedTests = {
       shuffle_questions: config.shuffle_questions,
       shuffle_choices: config.shuffle_choices,
       version_label: config.version_label,
-      version_number: config.version_number
+      version_number: config.version_number,
+      created_by: user.id // Use UUID
     }));
     
     const { data, error } = await supabase
@@ -128,10 +137,12 @@ export const GeneratedTests = {
 
   async list() {
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    
     const { data, error } = await supabase
       .from("generated_tests")
       .select("*")
-      .eq("created_by", user?.id)
+      .eq("created_by", user.id)
       .order("created_at", { ascending: false });
     
     if (error) throw error;
@@ -140,10 +151,12 @@ export const GeneratedTests = {
 
   async listByBaseTest(title: string, subject: string) {
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    
     const { data, error } = await supabase
       .from("generated_tests")
       .select("*")
-      .eq("created_by", user?.id)
+      .eq("created_by", user.id)
       .eq("title", title)
       .eq("subject", subject)
       .order("version_number", { ascending: true });
