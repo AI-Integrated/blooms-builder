@@ -185,8 +185,8 @@ export default function IntelligentTestGenerator() {
       });
 
       // STEP 5: Redirect to GeneratedTestPage
-      console.log(`✅ Redirecting to /teacher/preview-test/${result.id}`);
-      navigate(`/teacher/preview-test/${result.id}`);
+      console.log(`✅ Redirecting to /teacher/generated-test/${result.id}`);
+      navigate(`/teacher/generated-test/${result.id}`);
 
     } catch (error: any) {
       console.error('❌ Test generation error:', error);

@@ -189,7 +189,8 @@ export async function saveGeneratedTest(test: {
     subject: 'General',
     instructions: 'Read each question carefully and select the best answer.',
     items: test.items || test.versions || [],
-    answer_key: test.answer_key || {}
+    answer_key: test.answer_key || {},
+    created_by: user.id // Add UUID
   };
 
   const { data, error } = await supabase

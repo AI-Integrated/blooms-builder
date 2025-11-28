@@ -337,6 +337,18 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         return 'difficult'; // evaluating, creating
       };
 
+      // STEP 4: Validate TOS structure
+      console.log(`📦 Step 4: Validating TOS structure...`);
+      
+      if (!tosMatrix || !tosMatrix.topics || tosMatrix.topics.length === 0) {
+        setIsGeneratingTest(false);
+        toast.error('TOS data is missing or incomplete. Cannot generate test.');
+        return;
+      }
+
+      // STEP 5: Process TOS matrix distribution
+      console.log(`📦 Step 5: Processing TOS matrix criteria...`);
+
       const levels: Array<keyof any> = [
         'remembering',
         'understanding',
@@ -405,9 +417,9 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       
       toast.success(`Successfully generated test!`);
       
-      // Redirect to the generated test page
+      // Redirect to the generated test page using consistent route
       setTimeout(() => {
-        navigate(`/teacher/preview-test/${result.id}`);
+        navigate(`/teacher/generated-test/${result.id}`);
       }, 500);
       
     } catch (error) {
