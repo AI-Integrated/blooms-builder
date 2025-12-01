@@ -184,7 +184,6 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     });
     return {
       id: crypto.randomUUID(), // Temporary ID for new TOS
-      title: `${subject_no} - ${description} Examination`
       subject_no: data.subject_no,
       course: data.course,
       description: data.description,
