@@ -247,6 +247,8 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     try {
       // Remove fields not in database schema
       const { id, totalHours, bloom_distribution, ...tosData } = tosMatrix;
+
+       tosData.title = `${tosData.subject_no} - ${tosData.exam_period} Examination`;
       
       const savedTOS = await TOS.create(tosData);
       setTosMatrix({ ...savedTOS, totalHours: tosMatrix.totalHours, bloom_distribution: tosMatrix.bloom_distribution });
