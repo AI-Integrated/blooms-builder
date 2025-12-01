@@ -184,7 +184,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     });
     return {
       id: crypto.randomUUID(), // Temporary ID for new TOS
-    
+      title: `${subject_no} - ${exam_period} Examination`
       subject_no: data.subject_no,
       course: data.course,
       description: data.description,
@@ -248,7 +248,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       // Remove fields not in database schema
       const { id, totalHours, bloom_distribution, ...tosData } = tosMatrix;
 
-       tosData.title = `${tosData.subject_no} - ${tosData.exam_period} Examination`;
+      
       
       const savedTOS = await TOS.create(tosData);
       setTosMatrix({ ...savedTOS, totalHours: tosMatrix.totalHours, bloom_distribution: tosMatrix.bloom_distribution });
