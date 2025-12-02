@@ -55,8 +55,8 @@ export const TOS = {
     
     const tosData = {
       ...payload,
-      created_by: 'teacher',
-      owner: user.id
+      owner: user.id,        // REQUIRED for RLS
+      created_by: user.id    // REQUIRED for RLS
     };
     
     console.log("📦 TOS data to insert:", {
