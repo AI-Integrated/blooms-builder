@@ -63,7 +63,8 @@ export const TOS = {
       title: tosData.title,
       course: tosData.course,
       total_items: tosData.total_items,
-      owner: tosData.owner
+      owner: tosData.owner,
+      created_by: tosData.created_by,
     });
     
     const { data, error } = await supabase
@@ -79,10 +80,9 @@ export const TOS = {
         hint: error.hint,
         code: error.code
       });
-      
-      // Provide specific error messages based on error code
+
       if (error.code === '42501') {
-        throw new Error(`Permission denied: User does not have permission to create TOS. Please ensure you have 'teacher' or 'admin' role assigned.`);
+        throw new Error(`Permission denied: RLS blocked the insert. Ensure 'owner' and 'created_by' match auth.uid().`);
       } else if (error.code === '23505') {
         throw new Error(`Duplicate entry: A TOS with this information already exists.`);
       } else if (error.code === '23502') {
