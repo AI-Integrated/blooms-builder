@@ -149,7 +149,8 @@ export async function generateTestFromTOS(
     items: selectedQuestions,
     answer_key: answerKey,
     tos_id: testMetadata?.tos_id || null,
-    points_per_question: testMetadata?.points_per_question || 1
+    points_per_question: testMetadata?.points_per_question || 1,
+    created_by: user.id  // Required for RLS policy
   };
 
   console.log(`\n💾 Saving test to database...`);

@@ -1976,6 +1976,7 @@ export type Database = {
           total_pairs: number
         }[]
       }
+      can_access_tos: { Args: { tos_owner: string }; Returns: boolean }
       check_question_similarity: {
         Args: {
           p_bloom_level: string
