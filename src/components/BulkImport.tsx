@@ -585,6 +585,13 @@ export default function BulkImport({
       setProgress(80);
       setCurrentStep('Saving to database...');
 
+      // Valid knowledge dimensions from database constraint
+      const validKnowledgeDimensions = ['factual', 'conceptual', 'procedural', 'metacognitive'];
+      const normalizeKnowledgeDimension = (val: string | undefined): string => {
+        const normalized = (val || 'conceptual').toLowerCase().trim();
+        return validKnowledgeDimensions.includes(normalized) ? normalized : 'conceptual';
+      };
+
       // Ensure all required fields are present with proper types
       const questionsWithDefaults = normalizedData.map(q => ({
         topic: q.topic || 'General',
@@ -592,9 +599,9 @@ export default function BulkImport({
         question_type: (q.question_type as 'mcq' | 'true_false' | 'essay' | 'short_answer') || 'mcq',
         choices: q.choices || {},
         correct_answer: q.correct_answer || '',
-        bloom_level: q.bloom_level || 'understanding',
-        difficulty: q.difficulty || 'average',
-        knowledge_dimension: q.knowledge_dimension || 'conceptual',
+        bloom_level: (q.bloom_level || 'understanding').toLowerCase(),
+        difficulty: (q.difficulty || 'average').toLowerCase(),
+        knowledge_dimension: normalizeKnowledgeDimension(q.knowledge_dimension),
         created_by: 'teacher' as const,
         approved: false,
         ai_confidence_score: q.ai_confidence_score || 0.5,
