@@ -176,10 +176,7 @@ export async function classifyQuestions(
 ): Promise<ClassificationResult[]> {
   try {
     const { data, error } = await supabase.functions.invoke('classify-questions', {
-      body: questions,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      body: JSON.stringify(questions),
     });
 
     if (error) {
