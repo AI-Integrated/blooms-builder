@@ -53,10 +53,14 @@ export const TOS = {
 
     console.log("📝 Creating TOS entry for user:", user.id);
     
+    // Ensure title is always set
+    const title = payload.title || `${payload.subject_no || payload.course} - ${payload.exam_period || 'Examination'}`;
+    
     const tosData = {
       ...payload,
-      owner: user.id,        // REQUIRED for RLS
-      created_by: user.id    // REQUIRED for RLS
+      title,
+      owner: user.id,        // REQUIRED: UUID for RLS policy
+      created_by: user.id    // REQUIRED: UUID for RLS policy
     };
     
     console.log("📦 TOS data to insert:", {
@@ -82,7 +86,7 @@ export const TOS = {
       });
 
       if (error.code === '42501') {
-        throw new Error(`Permission denied: RLS blocked the insert. Ensure 'owner' and 'created_by' match auth.uid().`);
+        throw new Error(`Permission denied: RLS blocked the insert. Please ensure you are logged in.`);
       } else if (error.code === '23505') {
         throw new Error(`Duplicate entry: A TOS with this information already exists.`);
       } else if (error.code === '23502') {

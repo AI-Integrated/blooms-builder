@@ -25,6 +25,41 @@ interface TestItem {
   topic?: string;
 }
 
+interface GroupedQuestions {
+  mcq: TestItem[];
+  true_false: TestItem[];
+  short_answer: TestItem[];
+  essay: TestItem[];
+  other: TestItem[];
+}
+
+function groupQuestionsByType(items: TestItem[]): GroupedQuestions {
+  const groups: GroupedQuestions = {
+    mcq: [],
+    true_false: [],
+    short_answer: [],
+    essay: [],
+    other: []
+  };
+
+  for (const item of items) {
+    const type = (item.question_type || item.type || '').toLowerCase();
+    if (type === 'mcq' || type === 'multiple-choice' || type === 'multiple_choice') {
+      groups.mcq.push(item);
+    } else if (type === 'true_false' || type === 'true-false' || type === 'truefalse') {
+      groups.true_false.push(item);
+    } else if (type === 'short_answer' || type === 'fill-blank' || type === 'fill_blank' || type === 'identification') {
+      groups.short_answer.push(item);
+    } else if (type === 'essay') {
+      groups.essay.push(item);
+    } else {
+      groups.other.push(item);
+    }
+  }
+
+  return groups;
+}
+
 export default function GeneratedTestPage() {
   const { testId } = useParams<{ testId: string }>();
   const navigate = useNavigate();
@@ -111,6 +146,14 @@ export default function GeneratedTestPage() {
 
   const items: TestItem[] = Array.isArray(test.items) ? test.items : [];
   const totalPoints = items.reduce((sum, item) => sum + (item.points || 1), 0);
+  const groupedQuestions = groupQuestionsByType(items);
+
+  // Calculate starting numbers for each section
+  const mcqStart = 1;
+  const tfStart = mcqStart + groupedQuestions.mcq.length;
+  const saStart = tfStart + groupedQuestions.true_false.length;
+  const essayStart = saStart + groupedQuestions.short_answer.length;
+  const otherStart = essayStart + groupedQuestions.essay.length;
 
   return (
     <div className="container mx-auto py-8 space-y-6 print:py-4">
@@ -137,7 +180,7 @@ export default function GeneratedTestPage() {
       </div>
 
       {/* Exam Paper */}
-      <Card className="print:shadow-none print:border-none">
+      <Card className="print:shadow-none print:border-none" id="test-content">
         <CardHeader className="text-center border-b print:border-black">
           <div className="space-y-2">
             <h1 className="text-2xl font-bold">{test.title || "Examination"}</h1>
@@ -148,6 +191,28 @@ export default function GeneratedTestPage() {
               {test.exam_period && <Badge variant="secondary">{test.exam_period}</Badge>}
               {test.school_year && <Badge variant="secondary">SY {test.school_year}</Badge>}
             </div>
+            
+            {/* Student Info Section */}
+            <div className="mt-4 pt-4 border-t text-left grid grid-cols-2 gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Name:</span>
+                <span className="flex-1 border-b border-dashed border-muted-foreground"></span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Date:</span>
+                <span className="flex-1 border-b border-dashed border-muted-foreground"></span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Section:</span>
+                <span className="flex-1 border-b border-dashed border-muted-foreground"></span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Score:</span>
+                <span className="flex-1 border-b border-dashed border-muted-foreground"></span>
+                <span>/ {totalPoints}</span>
+              </div>
+            </div>
+            
             <div className="text-sm text-muted-foreground flex justify-between items-center pt-2">
               <span>Total Points: {totalPoints}</span>
               {test.time_limit && <span>Time Limit: {test.time_limit} minutes</span>}
@@ -167,16 +232,57 @@ export default function GeneratedTestPage() {
 
           <Separator />
 
-          {/* Questions */}
-          <div className="space-y-6">
-            {items.map((item, index) => (
-              <QuestionItem
-                key={index}
-                item={item}
-                number={index + 1}
+          {/* Questions - Grouped by Type */}
+          <div className="space-y-8">
+            {groupedQuestions.mcq.length > 0 && (
+              <QuestionSection
+                title="Section A: Multiple Choice Questions"
+                instruction="Choose the best answer from the options provided. Write the letter of your answer on the space provided."
+                items={groupedQuestions.mcq}
+                startNumber={mcqStart}
                 showAnswer={showAnswerKey}
               />
-            ))}
+            )}
+            
+            {groupedQuestions.true_false.length > 0 && (
+              <QuestionSection
+                title="Section B: True or False"
+                instruction="Write TRUE if the statement is correct, FALSE if incorrect."
+                items={groupedQuestions.true_false}
+                startNumber={tfStart}
+                showAnswer={showAnswerKey}
+              />
+            )}
+            
+            {groupedQuestions.short_answer.length > 0 && (
+              <QuestionSection
+                title="Section C: Fill in the Blank / Short Answer"
+                instruction="Write the correct answer on the blank provided."
+                items={groupedQuestions.short_answer}
+                startNumber={saStart}
+                showAnswer={showAnswerKey}
+              />
+            )}
+            
+            {groupedQuestions.essay.length > 0 && (
+              <QuestionSection
+                title="Section D: Essay Questions"
+                instruction="Answer the following questions in complete sentences. Provide clear and concise explanations."
+                items={groupedQuestions.essay}
+                startNumber={essayStart}
+                showAnswer={showAnswerKey}
+              />
+            )}
+            
+            {groupedQuestions.other.length > 0 && (
+              <QuestionSection
+                title="Section E: Other Questions"
+                instruction="Answer the following questions."
+                items={groupedQuestions.other}
+                startNumber={otherStart}
+                showAnswer={showAnswerKey}
+              />
+            )}
           </div>
         </CardContent>
       </Card>
@@ -191,19 +297,77 @@ export default function GeneratedTestPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {items.map((item, index) => (
-                <div key={index} className="flex items-center gap-2 p-2 bg-muted rounded">
-                  <span className="font-semibold">{index + 1}.</span>
-                  <span className="text-primary font-medium">
-                    {formatAnswer(item)}
-                  </span>
-                </div>
-              ))}
+            <div className="space-y-4">
+              {groupedQuestions.mcq.length > 0 && (
+                <AnswerKeySection title="Multiple Choice" items={groupedQuestions.mcq} startNumber={mcqStart} />
+              )}
+              {groupedQuestions.true_false.length > 0 && (
+                <AnswerKeySection title="True/False" items={groupedQuestions.true_false} startNumber={tfStart} />
+              )}
+              {groupedQuestions.short_answer.length > 0 && (
+                <AnswerKeySection title="Short Answer" items={groupedQuestions.short_answer} startNumber={saStart} />
+              )}
+              {groupedQuestions.essay.length > 0 && (
+                <AnswerKeySection title="Essay" items={groupedQuestions.essay} startNumber={essayStart} />
+              )}
+              {groupedQuestions.other.length > 0 && (
+                <AnswerKeySection title="Other" items={groupedQuestions.other} startNumber={otherStart} />
+              )}
             </div>
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+function QuestionSection({ 
+  title, 
+  instruction, 
+  items, 
+  startNumber, 
+  showAnswer 
+}: { 
+  title: string; 
+  instruction: string; 
+  items: TestItem[]; 
+  startNumber: number; 
+  showAnswer: boolean;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="border-b pb-2">
+        <h2 className="text-lg font-bold">{title}</h2>
+        <p className="text-sm text-muted-foreground italic">{instruction}</p>
+      </div>
+      <div className="space-y-4">
+        {items.map((item, index) => (
+          <QuestionItem
+            key={index}
+            item={item}
+            number={startNumber + index}
+            showAnswer={showAnswer}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AnswerKeySection({ title, items, startNumber }: { title: string; items: TestItem[]; startNumber: number }) {
+  return (
+    <div>
+      <h3 className="font-semibold mb-2">{title}</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+        {items.map((item, index) => (
+          <div key={index} className="flex items-center gap-2 p-2 bg-muted rounded text-sm">
+            <span className="font-semibold">{startNumber + index}.</span>
+            <span className="text-primary font-medium">
+              {formatAnswer(item)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -223,7 +387,7 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
   };
 
   const questionText = item.question_text || item.question || '';
-  const questionType = item.question_type || item.type || '';
+  const questionType = (item.question_type || item.type || '').toLowerCase();
   const options = item.choices || item.options || [];
   const correctAnswer = item.correct_answer ?? item.correctAnswer;
 
@@ -232,7 +396,7 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
       {/* Question Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 flex-1">
-          <span className="font-bold text-lg">{number}.</span>
+          <span className="font-bold text-lg min-w-[30px]">{number}.</span>
           <div className="flex-1">
             <p className="text-sm leading-relaxed">{questionText}</p>
           </div>
@@ -252,11 +416,13 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
       </div>
 
       {/* Question Content based on type */}
-      <div className="ml-6">
-        {(questionType === "mcq" || questionType === "multiple-choice") && options.length > 0 && (
+      <div className="ml-8">
+        {(questionType === "mcq" || questionType === "multiple-choice" || questionType === "multiple_choice") && Array.isArray(options) && options.length > 0 && (
           <div className="space-y-2">
             {options.map((option, idx) => {
-              const isCorrect = correctAnswer === idx || correctAnswer === String.fromCharCode(65 + idx);
+              const isCorrect = correctAnswer === idx || 
+                correctAnswer === String.fromCharCode(65 + idx) || 
+                correctAnswer === String.fromCharCode(97 + idx);
               return (
                 <div
                   key={idx}
@@ -276,14 +442,13 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
           </div>
         )}
 
-        {(questionType === "true_false" || questionType === "true-false") && (
+        {(questionType === "true_false" || questionType === "true-false" || questionType === "truefalse") && (
           <div className="space-y-2">
             {["True", "False"].map((option, idx) => {
+              const normalizedAnswer = String(correctAnswer).toLowerCase();
               const isCorrect =
-                (correctAnswer === "true" && option === "True") ||
-                (correctAnswer === "false" && option === "False") ||
-                (correctAnswer === "True" && option === "True") ||
-                (correctAnswer === "False" && option === "False") ||
+                (normalizedAnswer === "true" && option === "True") ||
+                (normalizedAnswer === "false" && option === "False") ||
                 correctAnswer === idx;
               return (
                 <div
@@ -302,9 +467,9 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
           </div>
         )}
 
-        {(questionType === "short_answer" || questionType === "fill-blank") && (
-          <div className="border-b-2 border-dashed border-muted-foreground/30 py-2">
-            {showAnswer && (
+        {(questionType === "short_answer" || questionType === "fill-blank" || questionType === "fill_blank" || questionType === "identification") && (
+          <div className="border-b-2 border-dashed border-muted-foreground/30 py-4">
+            {showAnswer && correctAnswer && (
               <span className="text-primary font-medium">
                 Answer: {correctAnswer}
               </span>
@@ -314,14 +479,14 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
 
         {questionType === "essay" && (
           <div className="space-y-2">
-            <div className="border rounded p-4 min-h-[100px] bg-muted/10">
+            <div className="border rounded p-4 min-h-[120px] bg-muted/10">
               <p className="text-xs text-muted-foreground italic">
                 Write your answer here...
               </p>
             </div>
             {showAnswer && correctAnswer && (
-              <div className="text-sm text-muted-foreground">
-                <strong>Key Points:</strong> {correctAnswer}
+              <div className="text-sm text-muted-foreground bg-green-50 p-3 rounded">
+                <strong>Key Points/Sample Answer:</strong> {correctAnswer}
               </div>
             )}
           </div>
@@ -336,7 +501,7 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
 
       {/* Metadata footer */}
       {(item.topic || item.bloom_level) && (
-        <div className="flex gap-2 text-xs text-muted-foreground ml-6 print:hidden">
+        <div className="flex gap-2 text-xs text-muted-foreground ml-8 print:hidden">
           {item.topic && <span>Topic: {item.topic}</span>}
           {item.bloom_level && <span>• Bloom: {item.bloom_level}</span>}
         </div>
@@ -346,15 +511,16 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
 }
 
 function formatAnswer(item: TestItem): string {
-  const questionType = item.question_type || item.type || '';
+  const questionType = (item.question_type || item.type || '').toLowerCase();
   const correctAnswer = item.correct_answer ?? item.correctAnswer;
   
-  if ((questionType === "mcq" || questionType === "multiple-choice") && typeof correctAnswer === "number") {
+  if ((questionType === "mcq" || questionType === "multiple-choice" || questionType === "multiple_choice") && typeof correctAnswer === "number") {
     return String.fromCharCode(65 + correctAnswer);
   }
-  if (questionType === "true_false" || questionType === "true-false") {
-    if (correctAnswer === "true" || correctAnswer === "True" || correctAnswer === 0) return "True";
-    if (correctAnswer === "false" || correctAnswer === "False" || correctAnswer === 1) return "False";
+  if (questionType === "true_false" || questionType === "true-false" || questionType === "truefalse") {
+    const normalizedAnswer = String(correctAnswer).toLowerCase();
+    if (normalizedAnswer === "true" || correctAnswer === 0) return "True";
+    if (normalizedAnswer === "false" || correctAnswer === 1) return "False";
   }
   return String(correctAnswer || "N/A");
 }

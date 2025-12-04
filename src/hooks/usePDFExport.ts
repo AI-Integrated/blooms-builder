@@ -156,48 +156,91 @@ export const usePDFExport = () => {
       
       yPosition += lineHeight * 2;
 
-      // Add instructions
+      // Add student info section
       pdf.setFontSize(10);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('Instructions: Read each question carefully and select the best answer.', margin, yPosition);
+      pdf.text('Name: _______________________________', margin, yPosition);
+      pdf.text('Date: _______________', pageWidth - margin - 50, yPosition);
+      yPosition += lineHeight;
+      pdf.text('Section: ____________________________', margin, yPosition);
+      pdf.text('Score: _____ / ' + questions.length, pageWidth - margin - 50, yPosition);
       yPosition += lineHeight * 2;
 
-      // Add questions
-      questions.forEach((question, index) => {
-        // Check if we need a new page
-        if (yPosition > pageHeight - 40) {
-          pdf.addPage();
-          yPosition = margin;
+      // Group questions by type
+      const grouped = {
+        mcq: [] as any[],
+        true_false: [] as any[],
+        short_answer: [] as any[],
+        essay: [] as any[],
+        other: [] as any[]
+      };
+
+      questions.forEach(q => {
+        const type = (q.question_type || q.type || '').toLowerCase();
+        if (type === 'mcq' || type === 'multiple-choice' || type === 'multiple_choice') {
+          grouped.mcq.push(q);
+        } else if (type === 'true_false' || type === 'true-false' || type === 'truefalse') {
+          grouped.true_false.push(q);
+        } else if (type === 'short_answer' || type === 'fill-blank' || type === 'fill_blank' || type === 'identification') {
+          grouped.short_answer.push(q);
+        } else if (type === 'essay') {
+          grouped.essay.push(q);
+        } else {
+          grouped.other.push(q);
         }
-
-        // Question number and text
-        pdf.setFontSize(11);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text(`${index + 1}.`, margin, yPosition);
-        
-        pdf.setFont('helvetica', 'normal');
-        const questionLines = pdf.splitTextToSize(question.question, pageWidth - margin * 2 - 10);
-        pdf.text(questionLines, margin + 8, yPosition);
-        yPosition += questionLines.length * lineHeight;
-
-        // Add options for multiple choice
-        if (question.type === 'multiple-choice' && question.options) {
-          yPosition += 3;
-          question.options.forEach((option: string, optIndex: number) => {
-            if (yPosition > pageHeight - 20) {
-              pdf.addPage();
-              yPosition = margin;
-            }
-            
-            const optionLetter = String.fromCharCode(65 + optIndex);
-            const optionLines = pdf.splitTextToSize(`${optionLetter}. ${option}`, pageWidth - margin * 2 - 15);
-            pdf.text(optionLines, margin + 15, yPosition);
-            yPosition += optionLines.length * lineHeight;
-          });
-        }
-
-        yPosition += lineHeight;
       });
+
+      let questionNumber = 1;
+
+      // Section A: MCQ
+      if (grouped.mcq.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section A: Multiple Choice Questions', 
+          'Choose the best answer from the options provided.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.mcq) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight);
+        }
+      }
+
+      // Section B: True/False
+      if (grouped.true_false.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section B: True or False', 
+          'Write TRUE if the statement is correct, FALSE if incorrect.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.true_false) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight);
+        }
+      }
+
+      // Section C: Short Answer
+      if (grouped.short_answer.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section C: Fill in the Blank / Short Answer', 
+          'Write the correct answer on the blank provided.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.short_answer) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight);
+        }
+      }
+
+      // Section D: Essay
+      if (grouped.essay.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section D: Essay Questions', 
+          'Answer the following questions in complete sentences.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.essay) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight, true);
+        }
+      }
+
+      // Section E: Other
+      if (grouped.other.length > 0) {
+        yPosition = addSectionHeader(pdf, 'Section E: Other Questions', 
+          'Answer the following questions.', yPosition, margin, pageWidth, pageHeight);
+        
+        for (const question of grouped.other) {
+          yPosition = addQuestion(pdf, question, questionNumber++, yPosition, margin, pageWidth, pageHeight, lineHeight);
+        }
+      }
 
       // Create answer key on new page
       pdf.addPage();
@@ -211,22 +254,33 @@ export const usePDFExport = () => {
       pdf.setFontSize(10);
       pdf.setFont('helvetica', 'normal');
       
-      questions.forEach((question, index) => {
-        if (yPosition > pageHeight - 20) {
-          pdf.addPage();
-          yPosition = margin;
-        }
+      questionNumber = 1;
+      for (const section of [grouped.mcq, grouped.true_false, grouped.short_answer, grouped.essay, grouped.other]) {
+        for (const question of section) {
+          if (yPosition > pageHeight - 20) {
+            pdf.addPage();
+            yPosition = margin;
+          }
 
-        let answer = '';
-        if (question.type === 'multiple-choice' && typeof question.correctAnswer === 'number') {
-          answer = String.fromCharCode(65 + question.correctAnswer);
-        } else {
-          answer = 'See rubric';
+          const correctAnswer = question.correct_answer ?? question.correctAnswer ?? '';
+          const questionType = (question.question_type || question.type || '').toLowerCase();
+          
+          let answer = '';
+          if ((questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice') && typeof correctAnswer === 'number') {
+            answer = String.fromCharCode(65 + correctAnswer);
+          } else if (questionType === 'true_false' || questionType === 'true-false') {
+            answer = String(correctAnswer).toLowerCase() === 'true' ? 'True' : 'False';
+          } else if (correctAnswer) {
+            answer = String(correctAnswer).substring(0, 50) + (String(correctAnswer).length > 50 ? '...' : '');
+          } else {
+            answer = 'See rubric';
+          }
+          
+          pdf.text(`${questionNumber}. ${answer}`, margin, yPosition);
+          yPosition += lineHeight;
+          questionNumber++;
         }
-        
-        pdf.text(`${index + 1}. ${answer}`, margin, yPosition);
-        yPosition += lineHeight;
-      });
+      }
 
       // Add watermarks if version label and test ID are provided
       if (versionLabel && testId) {
@@ -296,3 +350,112 @@ export const usePDFExport = () => {
     uploadToStorage
   };
 };
+
+// Helper function to add section header
+function addSectionHeader(
+  pdf: jsPDF, 
+  title: string, 
+  instruction: string, 
+  yPosition: number, 
+  margin: number, 
+  pageWidth: number,
+  pageHeight: number
+): number {
+  if (yPosition > pageHeight - 60) {
+    pdf.addPage();
+    yPosition = margin;
+  }
+
+  pdf.setFontSize(12);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text(title, margin, yPosition);
+  yPosition += 6;
+  
+  pdf.setFontSize(9);
+  pdf.setFont('helvetica', 'italic');
+  pdf.text(instruction, margin, yPosition);
+  yPosition += 10;
+  
+  return yPosition;
+}
+
+// Helper function to add a question
+function addQuestion(
+  pdf: jsPDF,
+  question: any,
+  number: number,
+  yPosition: number,
+  margin: number,
+  pageWidth: number,
+  pageHeight: number,
+  lineHeight: number,
+  isEssay: boolean = false
+): number {
+  // Check if we need a new page
+  if (yPosition > pageHeight - 50) {
+    pdf.addPage();
+    yPosition = margin;
+  }
+
+  // Get question text - handle both field naming conventions
+  const questionText = question.question_text || question.question || 'Question text not available';
+  const questionType = (question.question_type || question.type || '').toLowerCase();
+  const options = question.choices || question.options || [];
+
+  // Question number and text
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text(`${number}.`, margin, yPosition);
+  
+  pdf.setFont('helvetica', 'normal');
+  const questionLines = pdf.splitTextToSize(questionText, pageWidth - margin * 2 - 10);
+  pdf.text(questionLines, margin + 8, yPosition);
+  yPosition += questionLines.length * lineHeight;
+
+  // Add options for multiple choice
+  if ((questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice') && Array.isArray(options) && options.length > 0) {
+    yPosition += 3;
+    options.forEach((option: string, optIndex: number) => {
+      if (yPosition > pageHeight - 20) {
+        pdf.addPage();
+        yPosition = margin;
+      }
+      
+      const optionLetter = String.fromCharCode(65 + optIndex);
+      const optionText = typeof option === 'string' ? option : String(option);
+      const optionLines = pdf.splitTextToSize(`${optionLetter}. ${optionText}`, pageWidth - margin * 2 - 15);
+      pdf.text(optionLines, margin + 15, yPosition);
+      yPosition += optionLines.length * lineHeight;
+    });
+  }
+
+  // Add True/False options
+  if (questionType === 'true_false' || questionType === 'true-false' || questionType === 'truefalse') {
+    yPosition += 3;
+    pdf.text('( ) True    ( ) False', margin + 15, yPosition);
+    yPosition += lineHeight;
+  }
+
+  // Add blank line for short answer
+  if (questionType === 'short_answer' || questionType === 'fill-blank' || questionType === 'fill_blank' || questionType === 'identification') {
+    yPosition += 3;
+    pdf.text('Answer: _____________________________________________', margin + 8, yPosition);
+    yPosition += lineHeight;
+  }
+
+  // Add space for essay
+  if (isEssay || questionType === 'essay') {
+    yPosition += 5;
+    for (let i = 0; i < 5; i++) {
+      if (yPosition > pageHeight - 15) {
+        pdf.addPage();
+        yPosition = margin;
+      }
+      pdf.text('___________________________________________________________________________', margin, yPosition);
+      yPosition += lineHeight;
+    }
+  }
+
+  yPosition += lineHeight;
+  return yPosition;
+}
