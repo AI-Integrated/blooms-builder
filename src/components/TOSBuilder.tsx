@@ -20,6 +20,7 @@ import { usePresence } from "@/hooks/usePresence";
 import { buildTestConfigFromTOS } from "@/utils/testVersions";
 import { SufficiencyAnalysisPanel } from "@/components/analysis/SufficiencyAnalysisPanel";
 import { generateTestFromTOS, TOSCriteria } from "@/services/ai/testGenerationService";
+import { analyzeTOSSufficiency } from "@/services/analysis/sufficiencyAnalysis";
 import { useNavigate } from "react-router-dom";
 
 const topicSchema = z.object({
@@ -216,7 +217,6 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   const analyzeSufficiency = async (matrix: any) => {
     setIsAnalyzing(true);
     try {
-      const { analyzeTOSSufficiency } = await import('@/services/analysis/sufficiencyAnalysis');
       const analysis = await analyzeTOSSufficiency(matrix);
       setSufficiencyAnalysis(analysis);
       
