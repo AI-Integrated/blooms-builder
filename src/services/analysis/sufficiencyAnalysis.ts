@@ -88,6 +88,7 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
     sufficiency,
     gap: Math.max(0, gap)
   });
+  }
 }
 
 
