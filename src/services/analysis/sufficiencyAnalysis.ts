@@ -47,59 +47,49 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
 
     if (!matrixRow) continue;
 
-    for (const bloomLevel of bloomLevels) {
-      const required = matrixRow[bloomLevel]?.count || 0;
-      if (required === 0) continue;
+    for (const bloom of bloomLevels) {
+  const required = topic[`${bloom}_items`] || 0;
+  if (required === 0) continue;
 
-      totalRequired += required;
+  totalRequired += required;
 
-      // Track bloom requirements
-      if (!bloomCounts[bloomLevel]) {
-        bloomCounts[bloomLevel] = { required: 0, available: 0 };
-      }
-      bloomCounts[bloomLevel].required += required;
-
-      // Query questions
-      const { data: questions, error } = await supabase
-        .from("questions")
-        .select("id, topic, bloom_level, approved, deleted, status")
-        .eq("topic", topicName)
-        .eq("bloom_level", bloomLevel)
-        .eq("deleted", false);
-
-      if (error) {
-        console.error("❌ Error querying questions:", error);
-        continue;
-      }
-
-      const available = questions?.length || 0;
-
-      // Decide approval:
-      const approved = questions?.filter(
-        (q) => q.approved === true
-      ).length || 0;
-
-      bloomCounts[bloomLevel].available += available;
-      totalApproved += approved;
-
-      const gap = Math.max(0, required - approved);
-
-      let sufficiency: 'pass' | 'warning' | 'fail';
-      if (approved >= required) sufficiency = 'pass';
-      else if (approved >= required * 0.7) sufficiency = 'warning';
-      else sufficiency = 'fail';
-
-      results.push({
-        topic: topicName,
-        bloomLevel,
-        required,
-        available,
-        approved,
-        gap,
-        sufficiency
-      });
-    }
+  if (!bloomCounts[bloom]) {
+    bloomCounts[bloom] = { required: 0, available: 0 };
   }
+  bloomCounts[bloom].required += required;
+
+  // Match questions in the bank
+  const matched = allQuestions.filter(q =>
+    q.bloom === bloom &&
+    q.topic?.includes(topicName) // flexible match
+  );
+
+  const available = matched.length;
+  const approved = available; // <--- USE ALL AVAILABLE
+
+  totalAvailable += available;
+  totalApproved += approved;
+
+  bloomCounts[bloom].available += available;
+
+  const gap = required - available;
+
+  const sufficiency =
+    available >= required ? 'pass'
+    : available >= required * 0.7 ? 'warning'
+    : 'fail';
+
+  results.push({
+    topic: topicName,
+    bloomLevel: bloom,
+    required,
+    available,
+    approved,
+    sufficiency,
+    gap: Math.max(0, gap)
+  });
+}
+
 
   // Bloom distribution
   const bloomDistribution = Object.entries(bloomCounts).map(
