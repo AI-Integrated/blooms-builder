@@ -225,7 +225,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       } else if (analysis.overallStatus === 'warning') {
         toast.info("Question bank has marginal coverage. AI will generate additional questions as needed.");
       } else {
-        toast.info("Limited questions in bank. AI will generate questions to meet TOS requirements.");
+        toast.info("Not enough questions in the bank. AI will generate the rest.");
       }
     } catch (error) {
       console.error('Error analyzing TOS sufficiency:', error);
