@@ -1,51 +1,36 @@
-import { supabase } from "@/integrations/supabase/client";
-
-export interface SufficiencyResult {
-  topic: string;
-  bloomLevel: string;
-  required: number;
-  available: number;
-  approved: number;
-  sufficiency: 'pass' | 'warning' | 'fail';
-  gap: number;
-}
-
-export interface SufficiencyAnalysis {
-  overallStatus: 'pass' | 'warning' | 'fail';
-  overallScore: number;
-  totalRequired: number;
-  totalAvailable: number;
-  results: SufficiencyResult[];
-  bloomDistribution: {
-    level: string;
-    required: number;
-    available: number;
-    percentage: number;
-  }[];
-  recommendations: string[];
-}
-
 export async function analyzeTOSSufficiency(tosMatrix: any): Promise<SufficiencyAnalysis> {
+
+  // Fetch all questions in one query (much faster)
+  const { data: allQuestionsRaw, error } = await supabase
+    .from('questions')
+    .select('id, topic, bloom_level, approved, status, deleted');
+
+  if (error) {
+    console.error("Failed to fetch questions:", error);
+    throw new Error("Failed to analyze question bank sufficiency");
+  }
+
+  // Normalize data
+  const allQuestions = allQuestionsRaw
+    .filter(q => !q.deleted)
+    .map(q => ({
+      ...q,
+      topic: q.topic?.toLowerCase().trim(),
+      bloom: q.bloom_level?.toLowerCase().trim()
+    }));
+
   const results: SufficiencyResult[] = [];
   let totalRequired = 0;
   let totalApproved = 0;
-
-  const bloomLevels = [
-    "remembering",
-    "understanding",
-    "applying",
-    "analyzing",
-    "evaluating",
-    "creating"
-  ];
+  let totalAvailable = 0;
 
   const bloomCounts: Record<string, { required: number; available: number }> = {};
 
-  for (const topic of tosMatrix.topics || []) {
-    const topicName = topic.topic || topic.topic_name;
-    const matrixRow = tosMatrix.matrix?.[topicName];
+  const bloomLevels = ['remembering','understanding','applying','analyzing','evaluating','creating'];
 
-    if (!matrixRow) continue;
+  // Analyze each topic
+  for (const topic of tosMatrix.topics || []) {
+    const topicName = (topic.topic_name || topic.topic).toLowerCase().trim();
 
     for (const bloom of bloomLevels) {
   const required = topic[`${bloom}_items`] || 0;
@@ -88,44 +73,28 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
     sufficiency,
     gap: Math.max(0, gap)
   });
-  }
 }
-
-
-  // Bloom distribution
-  const bloomDistribution = Object.entries(bloomCounts).map(
-    ([level, counts]) => ({
-      level,
-      required: counts.required,
-      available: counts.available,
-      percentage: counts.required > 0 ? (counts.available / counts.required) * 100 : 0
-    })
-  );
+  }
 
   const overallScore = totalRequired > 0 ? (totalApproved / totalRequired) * 100 : 0;
 
   const overallStatus =
-    overallScore >= 100 ? "pass" :
-    overallScore >= 70  ? "warning" :
-                           "fail";
-
-  const recommendations: string[] = [];
-
-  if (overallScore < 70) {
-    recommendations.push("Add more approved questions for multiple Bloom levels.");
-  } else if (overallScore < 100) {
-    recommendations.push("Coverage is decent — but needs more approved items.");
-  } else {
-    recommendations.push("✓ Sufficient approved questions available for test generation.");
-  }
+    overallScore >= 100 ? 'pass'
+    : overallScore >= 70 ? 'warning'
+    : 'fail';
 
   return {
     overallStatus,
     overallScore,
     totalRequired,
-    totalAvailable: totalApproved,
+    totalAvailable,
     results,
-    bloomDistribution,
-    recommendations
+    bloomDistribution: Object.entries(bloomCounts).map(([level, c]) => ({
+      level,
+      required: c.required,
+      available: c.available,
+      percentage: c.required ? (c.available / c.required) * 100 : 0
+    })),
+    recommendations: []
   };
 }
