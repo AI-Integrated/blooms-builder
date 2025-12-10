@@ -2033,8 +2033,8 @@ export type Database = {
         Returns: undefined
       }
       is_admin:
-        | { Args: { uid: string }; Returns: boolean }
         | { Args: never; Returns: boolean }
+        | { Args: { uid: string }; Returns: boolean }
       is_document_collaborator: {
         Args: { p_document_id: string; p_document_type: string }
         Returns: boolean
