@@ -74,10 +74,9 @@ export class IntelligentQuestionSelector {
     let query = supabase
       .from('questions')
       .select('*')
-      .eq('topic', requirement.topic)
-      .eq('bloom_level', requirement.bloom_level)
+      .ilike('topic', `%${requirement.topic}%`)
+      .ilike('bloom_level', requirement.bloom_level)
       .eq('difficulty', requirement.difficulty)
-      .eq('approved', true)
       .eq('deleted', false);
 
     // Exclude recently used questions if requested
