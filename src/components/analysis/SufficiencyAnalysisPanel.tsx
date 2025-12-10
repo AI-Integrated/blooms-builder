@@ -61,21 +61,28 @@ export function SufficiencyAnalysisPanel({ analysis }: SufficiencyAnalysisPanelP
           </div>
         </div>
 
-        {/* Bloom Level Distribution */}
+        {/* Results Summary by Status */}
         <div>
-          <h4 className="text-sm font-semibold mb-3">Bloom Level Coverage</h4>
-          <div className="space-y-2">
-            {analysis.bloomDistribution.map((bloom) => (
-              <div key={bloom.level} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="capitalize">{bloom.level}</span>
-                  <span className="text-muted-foreground">
-                    {bloom.available} / {bloom.required} ({Math.round(bloom.percentage)}%)
-                  </span>
-                </div>
-                <Progress value={bloom.percentage} className="h-1.5" />
+          <h4 className="text-sm font-semibold mb-3">Coverage Summary</h4>
+          <div className="grid grid-cols-3 gap-2 text-sm">
+            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded text-center">
+              <div className="font-bold text-green-700 dark:text-green-400">
+                {analysis.results.filter(r => r.sufficiency === 'pass').length}
               </div>
-            ))}
+              <div className="text-xs text-muted-foreground">Pass</div>
+            </div>
+            <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded text-center">
+              <div className="font-bold text-yellow-700 dark:text-yellow-400">
+                {analysis.results.filter(r => r.sufficiency === 'warning').length}
+              </div>
+              <div className="text-xs text-muted-foreground">Warning</div>
+            </div>
+            <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded text-center">
+              <div className="font-bold text-red-700 dark:text-red-400">
+                {analysis.results.filter(r => r.sufficiency === 'fail').length}
+              </div>
+              <div className="text-xs text-muted-foreground">Fail</div>
+            </div>
           </div>
         </div>
 
@@ -98,7 +105,7 @@ export function SufficiencyAnalysisPanel({ analysis }: SufficiencyAnalysisPanelP
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium">
-                      {result.approved} / {result.required}
+                      {result.available} / {result.required}
                     </p>
                     {result.gap > 0 && (
                       <p className="text-xs text-red-600">Gap: {result.gap}</p>
