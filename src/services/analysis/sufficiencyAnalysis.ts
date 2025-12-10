@@ -1,48 +1,47 @@
 import { supabase } from "@/integrations/supabase/client";
 
-export interface SufficiencyResult {
-  topic: string;
-  bloomLevel: string;
-  required: number;
-  available: number;
-  gap: number;
-  sufficiency: "pass" | "warning" | "fail";
+// Normalize strings for consistent matching
+function normalize(text: string = "") {
+  return text
+    .toLowerCase()
+    .replace(/[_\-]/g, " ")          // replace snake_case and hyphens
+    .replace(/\s+/g, " ")           // collapse extra spaces
+    .trim();
 }
 
-export interface SufficiencyAnalysis {
-  overallStatus: "pass" | "warning" | "fail";
-  overallScore: number;
-  totalRequired: number;
-  totalAvailable: number;
-  results: SufficiencyResult[];
-  recommendations: string[];
+// Fuzzy topic matching:
+// Matches:
+//  - "requirements" ≈ "requirements engineering"
+//  - "req eng" ≈ "requirements engineering"
+//  - "requirements_engineering" ≈ "requirements engineering"
+function topicsMatch(t1: string, t2: string) {
+  return (
+    t1.includes(t2) ||
+    t2.includes(t1)
+  );
 }
 
-export async function analyzeTOSSufficiency(tosMatrix: any): Promise<SufficiencyAnalysis> {
-  const { data: allQuestionsRaw, error } = await supabase
+export async function analyzeTOSSufficiency(tosMatrix: any) {
+  // 1. Fetch all NON-DELETED questions once (FAST)
+  const { data: rawQuestions, error } = await supabase
     .from("questions")
     .select("id, topic, bloom_level, deleted");
 
   if (error) {
-    console.error("Failed to fetch questions:", error);
-    throw new Error("Failed to analyze question bank sufficiency");
+    console.error("Error fetching questions:", error);
+    throw new Error("Unable to analyze question bank.");
   }
 
-  console.log("Raw questions from DB:", allQuestionsRaw?.length, "questions");
-
-  const allQuestions = (allQuestionsRaw || [])
+  // Normalize all question fields
+  const questions = rawQuestions
     .filter(q => !q.deleted)
     .map(q => ({
       ...q,
-      topic: (q.topic || "").toLowerCase().trim(),
-      bloom: (q.bloom_level || "").toLowerCase().trim(),
+      topic: normalize(q.topic),
+      bloom: normalize(q.bloom_level)
     }));
 
-  console.log("Filtered questions (not deleted):", allQuestions.length);
-  console.log("Sample questions:", allQuestions.slice(0, 3));
-  console.log("TOS topics:", tosMatrix.topics);
-
-  const results: SufficiencyResult[] = [];
+  const results = [];
   let totalRequired = 0;
   let totalAvailable = 0;
 
@@ -53,11 +52,11 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
     "analyzing",
     "evaluating",
     "creating"
-  ];
+  ].map(normalize);
 
+  // 2. Analyze EACH topic and bloom requirement from TOS
   for (const topic of tosMatrix.topics || []) {
-    const topicName = (topic.topic_name || topic.topic || "").toLowerCase().trim();
-    console.log("Checking TOS topic:", topicName);
+    const topicName = normalize(topic.topic_name || topic.topic);
 
     for (const bloom of bloomLevels) {
       const required = topic[`${bloom}_items`] || 0;
@@ -65,23 +64,11 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
 
       totalRequired += required;
 
-      // More flexible matching: check if either contains the other, or fuzzy match
-      const matched = allQuestions.filter(q => {
-        const dbTopic = q.topic;
-        const tosTopicNorm = topicName;
-        
-        // Check various matching strategies
-        const exactMatch = dbTopic === tosTopicNorm;
-        const dbContainsTos = dbTopic.includes(tosTopicNorm);
-        const tosContainsDb = tosTopicNorm.includes(dbTopic);
-        
-        const topicMatches = exactMatch || dbContainsTos || tosContainsDb;
-        const bloomMatches = q.bloom === bloom;
-        
-        return topicMatches && bloomMatches;
-      });
-
-      console.log(`Topic "${topicName}" + Bloom "${bloom}": found ${matched.length} questions (required: ${required})`);
+      // 3. Get ONLY questions matching topic + bloom
+      const matched = questions.filter(q =>
+        topicsMatch(q.topic, topicName) &&
+        q.bloom === bloom
+      );
 
       const available = matched.length;
       totalAvailable += available;
@@ -92,7 +79,7 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
         topic: topicName,
         bloomLevel: bloom,
         required,
-        available,
+        available,    // <-- This is now used instead of approved
         gap,
         sufficiency:
           available >= required
@@ -104,10 +91,11 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
     }
   }
 
-  console.log("Total required:", totalRequired, "Total available:", totalAvailable);
-
+  // 4. Determine overall result
   const overallScore =
-    totalRequired > 0 ? (totalAvailable / totalRequired) * 100 : 0;
+    totalRequired > 0
+      ? (totalAvailable / totalRequired) * 100
+      : 0;
 
   const overallStatus =
     overallScore >= 100
@@ -116,11 +104,17 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
       ? "warning"
       : "fail";
 
+  // 5. Recommendations for AI generation
   const missing = results.filter(r => r.gap > 0);
 
   const recommendations =
     missing.length > 0
-      ? [`AI will generate ${missing.reduce((sum, r) => sum + r.gap, 0)} additional questions.`]
+      ? [
+          `AI will generate ${missing.reduce((n, r) => n + r.gap, 0)} questions to fill the gaps.`,
+          ...missing.map(r =>
+            `• ${r.topic} (${r.bloomLevel}) requires ${r.required}, but only ${r.available} exist.`
+          )
+        ]
       : ["All required questions exist in the bank."];
 
   return {
