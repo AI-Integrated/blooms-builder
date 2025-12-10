@@ -1,5 +1,24 @@
 import { supabase } from "@/integrations/supabase/client";
 
+// Types for sufficiency analysis
+export interface SufficiencyResult {
+  topic: string;
+  bloomLevel: string;
+  required: number;
+  available: number;
+  gap: number;
+  sufficiency: 'pass' | 'warning' | 'fail';
+}
+
+export interface SufficiencyAnalysis {
+  overallStatus: 'pass' | 'warning' | 'fail';
+  overallScore: number;
+  totalRequired: number;
+  totalAvailable: number;
+  results: SufficiencyResult[];
+  recommendations: string[];
+}
+
 // Normalize strings for consistent matching
 function normalize(text: string = "") {
   return text

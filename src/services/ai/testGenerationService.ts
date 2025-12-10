@@ -44,16 +44,16 @@ export async function generateTestFromTOS(
   for (const criteria of tosCriteria) {
     console.log(`\n📊 Processing Criteria: ${criteria.topic} | ${criteria.bloom_level} | ${criteria.difficulty} | Need: ${criteria.count}`);
     
-    // Step 1: Query existing approved questions matching criteria
+    // Step 1: Query existing AVAILABLE questions matching criteria (not just approved)
+    const normalizedTopic = criteria.topic.toLowerCase().replace(/[_\-]/g, ' ').trim();
+    const normalizedBloom = criteria.bloom_level.toLowerCase().trim();
+    
     const { data: existingQuestions, error: queryError } = await supabase
       .from('questions')
       .select('*')
-      .eq('topic', criteria.topic)
-      .eq('bloom_level', criteria.bloom_level)
-      .eq('difficulty', criteria.difficulty)
-      .eq('approved', true)
-      .eq('status', 'approved')
-      .eq('deleted', false);
+      .eq('deleted', false)
+      .or(`topic.ilike.%${normalizedTopic}%,topic.ilike.%${criteria.topic}%`)
+      .or(`bloom_level.ilike.${normalizedBloom},bloom_level.ilike.${criteria.bloom_level}`);
 
     if (queryError) {
       console.error("❌ Error querying questions:", queryError);

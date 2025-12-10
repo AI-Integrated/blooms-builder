@@ -260,7 +260,6 @@ export async function fetchQuestionsFromTOS(tosId: string): Promise<Question[]> 
     .from('questions')
     .select('*')
     .eq('tos_id', tosId)
-    .eq('approved', true)
     .eq('deleted', false);
 
   if (error) throw error;
@@ -278,7 +277,6 @@ export async function fetchQuestionsByIds(questionIds: string[]): Promise<Questi
     .from('questions')
     .select('*')
     .in('id', questionIds)
-    .eq('approved', true)
     .eq('deleted', false);
 
   if (error) throw error;
