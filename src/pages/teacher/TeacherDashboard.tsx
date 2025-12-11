@@ -150,10 +150,7 @@ export default function TeacherDashboard() {
 
 
 
-
-
-
-import { supabase } from "@/integrations/supabase/client";
+  import { supabase } from "@/integrations/supabase/client";
 
 export default function DebugPage() {
   async function testFetch() {
@@ -174,9 +171,6 @@ export default function DebugPage() {
       </button>
     </div>
   );
-}
-
-  
 
 
 
