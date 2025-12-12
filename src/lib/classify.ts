@@ -242,14 +242,13 @@ export function classifyQuestionsBatch(questions: Array<{ text: string; topic?: 
 }
 
 /**
- * Enhanced classification with OpenAI (optional)
+ * Enhanced classification - always uses heuristic classification for security.
+ * OpenAI classification should be done server-side via edge functions only.
  */
 export async function classifyWithAI(questionText: string, topic?: string): Promise<Classification> {
-  // Fallback to heuristic if no API key
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-  if (!apiKey) {
-    return classifyQuestionHeuristic(questionText, topic);
-  }
+  // SECURITY: Always use heuristic classification on client-side.
+  // OpenAI API calls must go through edge functions where keys are stored securely.
+  return classifyQuestionHeuristic(questionText, topic);
 
   try {
     const prompt = `Classify this educational question according to Bloom's Taxonomy and Knowledge Dimension.
