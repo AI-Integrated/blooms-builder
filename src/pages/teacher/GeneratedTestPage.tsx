@@ -508,31 +508,6 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
       )}
     </div>
   );
-}
-
-function formatAnswer(item: TestItem): string {
-  const questionType = (item.question_type || item.type || '').toLowerCase();
-  const correctAnswer = item.correct_answer ?? item.correctAnswer;
-  
-  if ((questionType === "mcq" || questionType === "multiple-choice" || questionType === "multiple_choice") && typeof correctAnswer === "number") {
-    return String.fromCharCode(65 + correctAnswer);
-  }
-  if (questionType === "true_false" || questionType === "true-false" || questionType === "truefalse") {
-    const normalizedAnswer = String(correctAnswer).toLowerCase();
-    if (normalizedAnswer === "true" || correctAnswer === 0) return "True";
-    if (normalizedAnswer === "false" || correctAnswer === 1) return "False";
-  }
-  return String(correctAnswer || "N/A");
-}
-
-
-
-
-
-
-
-
-
 
 
 
@@ -563,13 +538,23 @@ export default function DebugPage() {
 
 
 
+  
+}
 
-
-
-
-
-
-
+function formatAnswer(item: TestItem): string {
+  const questionType = (item.question_type || item.type || '').toLowerCase();
+  const correctAnswer = item.correct_answer ?? item.correctAnswer;
+  
+  if ((questionType === "mcq" || questionType === "multiple-choice" || questionType === "multiple_choice") && typeof correctAnswer === "number") {
+    return String.fromCharCode(65 + correctAnswer);
+  }
+  if (questionType === "true_false" || questionType === "true-false" || questionType === "truefalse") {
+    const normalizedAnswer = String(correctAnswer).toLowerCase();
+    if (normalizedAnswer === "true" || correctAnswer === 0) return "True";
+    if (normalizedAnswer === "false" || correctAnswer === 1) return "False";
+  }
+  return String(correctAnswer || "N/A");
+}
 
 
 
