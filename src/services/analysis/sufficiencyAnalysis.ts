@@ -1,118 +1,84 @@
 import { supabase } from "@/integrations/supabase/client";
 
-// Normalize topics for flexible matching
-function normalize(str: string = "") {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, " ") // remove special chars
-    .replace(/\s+/g, " ")        // collapse spaces
-    .trim();
-}
-
-// Loose topic matching (supports partial matches)
-function topicMatches(bankTopic: string, tosTopic: string) {
-  return (
-    bankTopic.includes(tosTopic) ||
-    tosTopic.includes(bankTopic)
-  );
-}
+const normalize = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
 
 export async function analyzeTOSSufficiency(tosMatrix: any) {
-  // 1. Fetch ALL questions fast (one query only)
-  const { data: allQuestionsRaw, error } = await supabase
+
+  // 1️⃣ Fetch all usable questions ONCE
+  const { data, error } = await supabase
     .from("questions")
-    .select("id, topic, bloom_level, deleted");
+    .select("id, topic, deleted")
+    .eq("approved", true)
+    .eq("deleted", false);
 
   if (error) {
-    console.error("❌ Failed to fetch questions:", error);
+    console.error(error);
     throw new Error("Failed to analyze question bank sufficiency");
   }
 
-  // 2. Normalize everything
-  const allQuestions = allQuestionsRaw
-    .filter(q => !q.deleted)
-    .map(q => ({
-      ...q,
-      topic: normalize(q.topic),
-      bloom: normalize(q.bloom_level),
-    }));
+  // 2️⃣ Normalize & group questions by topic
+  const topicMap: Record<string, number> = {};
+
+  data.forEach(q => {
+    const key = normalize(q.topic || "");
+    topicMap[key] = (topicMap[key] || 0) + 1;
+  });
 
   const results = [];
   let totalRequired = 0;
   let totalAvailable = 0;
 
-  const bloomLevels = [
-    "remembering",
-    "understanding",
-    "applying",
-    "analyzing",
-    "evaluating",
-    "creating"
-  ];
-
-  // 3. Analyze each topic in TOS
+  // 3️⃣ Analyze per TOS topic
   for (const topic of tosMatrix.topics || []) {
     const topicName = normalize(topic.topic_name || topic.topic);
 
-    for (const bloom of bloomLevels) {
-      const required = topic[`${bloom}_items`] || 0;
-      if (required === 0) continue;
+    const required =
+      (topic.remembering_items || 0) +
+      (topic.understanding_items || 0) +
+      (topic.applying_items || 0) +
+      (topic.analyzing_items || 0) +
+      (topic.evaluating_items || 0) +
+      (topic.creating_items || 0);
 
-      totalRequired += required;
+    const available = topicMap[topicName] || 0;
 
-      // 4. Match available questions in the bank
-      const matches = allQuestions.filter(q =>
-        q.bloom === bloom &&
-        topicMatches(q.topic, topicName)
-      );
+    totalRequired += required;
+    totalAvailable += available;
 
-      const available = matches.length;
-      totalAvailable += available;
+    const gap = Math.max(0, required - available);
 
-      const gap = Math.max(0, required - available);
-
-      results.push({
-        topic: topicName,
-        bloomLevel: bloom,
-        required,
-        available,
-        gap,
-        sufficiency:
-          available >= required ? "pass" :
-          available >= required * 0.7 ? "warning" :
-          "fail"
-      });
-    }
+    results.push({
+      topic: topicName,
+      required,
+      available,
+      gap,
+      sufficiency:
+        available >= required
+          ? "pass"
+          : available >= required * 0.7
+          ? "warning"
+          : "fail"
+    });
   }
 
-  // 5. Overall status
+  // 4️⃣ Overall evaluation
   const overallScore =
     totalRequired > 0 ? (totalAvailable / totalRequired) * 100 : 0;
 
   const overallStatus =
-    overallScore >= 100 ? "pass" :
-    overallScore >= 70 ? "warning" :
-    "fail";
+    overallScore >= 100
+      ? "pass"
+      : overallScore >= 70
+      ? "warning"
+      : "fail";
 
-  // 6. Recommend how many questions AI should generate
-  const missing = results.filter(r => r.gap > 0);
-  const totalToGenerate = missing.reduce((sum, r) => sum + r.gap, 0);
-
-  const recommendations = [];
-
-  if (totalToGenerate > 0) {
-    recommendations.push(
-      `AI will generate ${totalToGenerate} missing questions to meet TOS requirements.`
-    );
-
-    missing.forEach(m => {
-      recommendations.push(
-        ` • Topic "${m.topic}" – Bloom "${m.bloomLevel}" is missing ${m.gap} questions`
-      );
-    });
-  } else {
-    recommendations.push("All required questions exist in the bank.");
-  }
+  const recommendations =
+    overallStatus === "pass"
+      ? ["All required questions exist in the bank."]
+      : [
+          `AI will generate ${totalRequired - totalAvailable} additional questions to complete the exam.`
+        ];
 
   return {
     overallStatus,
