@@ -5,11 +5,9 @@ const normalize = (s: string) =>
 
 export async function analyzeTOSSufficiency(tosMatrix: any) {
 
-  // 1️⃣ Fetch all usable questions ONCE
   const { data, error } = await supabase
     .from("questions")
     .select("id, topic, deleted")
-    .eq("approved", true)
     .eq("deleted", false);
 
   if (error) {
@@ -17,7 +15,7 @@ export async function analyzeTOSSufficiency(tosMatrix: any) {
     throw new Error("Failed to analyze question bank sufficiency");
   }
 
-  // 2️⃣ Normalize & group questions by topic
+  // Group questions by normalized topic
   const topicMap: Record<string, number> = {};
 
   data.forEach(q => {
@@ -29,7 +27,6 @@ export async function analyzeTOSSufficiency(tosMatrix: any) {
   let totalRequired = 0;
   let totalAvailable = 0;
 
-  // 3️⃣ Analyze per TOS topic
   for (const topic of tosMatrix.topics || []) {
     const topicName = normalize(topic.topic_name || topic.topic);
 
@@ -41,7 +38,9 @@ export async function analyzeTOSSufficiency(tosMatrix: any) {
       (topic.evaluating_items || 0) +
       (topic.creating_items || 0);
 
-    const available = topicMap[topicName] || 0;
+    const available = Object.entries(topicMap)
+      .filter(([dbTopic]) => dbTopic.includes(topicName))
+      .reduce((sum, [, count]) => sum + count, 0);
 
     totalRequired += required;
     totalAvailable += available;
@@ -54,7 +53,9 @@ export async function analyzeTOSSufficiency(tosMatrix: any) {
       available,
       gap,
       sufficiency:
-        available >= required
+        required === 0
+          ? "pass"
+          : available >= required
           ? "pass"
           : available >= required * 0.7
           ? "warning"
@@ -62,19 +63,19 @@ export async function analyzeTOSSufficiency(tosMatrix: any) {
     });
   }
 
-  // 4️⃣ Overall evaluation
   const overallScore =
-    totalRequired > 0 ? (totalAvailable / totalRequired) * 100 : 0;
+    totalRequired === 0 ? 100 : (totalAvailable / totalRequired) * 100;
 
-  const overallStatus =
-    overallScore >= 100
-      ? "pass"
-      : overallScore >= 70
-      ? "warning"
-      : "fail";
+  let overallStatus: "pass" | "warning" | "fail";
+  if (totalRequired === 0) overallStatus = "pass";
+  else if (overallScore >= 100) overallStatus = "pass";
+  else if (overallScore >= 70) overallStatus = "warning";
+  else overallStatus = "fail";
 
   const recommendations =
-    overallStatus === "pass"
+    totalRequired === 0
+      ? ["Question availability analyzed. Define TOS requirements to compute gaps."]
+      : overallStatus === "pass"
       ? ["All required questions exist in the bank."]
       : [
           `AI will generate ${totalRequired - totalAvailable} additional questions to complete the exam.`
