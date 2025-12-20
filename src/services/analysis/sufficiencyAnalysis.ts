@@ -41,6 +41,7 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
     .select("id, topic, bloom_level, choices, approved")
      .eq("deleted", false)
   .eq("approved", true); // production
+   .eq("deleted", true)
   .eq("approved", false); // production
 
   
