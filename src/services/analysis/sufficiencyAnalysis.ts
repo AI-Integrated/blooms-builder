@@ -39,7 +39,7 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
   const { data: questions, error } = await supabase
     .from("questions")
     .select("id, topic, bloom_level, approved")
-    .eq("approved", true);
+    .eq("deleted", false);
 
   if (error) {
     console.error("Error fetching questions:", error);
