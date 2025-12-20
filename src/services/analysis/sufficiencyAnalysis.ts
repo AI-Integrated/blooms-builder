@@ -41,7 +41,9 @@ export async function analyzeTOSSufficiency(tosMatrix: any): Promise<Sufficiency
     .select("id, topic, bloom_level, choices, approved")
      .eq("deleted", false)
   .eq("approved", true); // production
+  .eq("approved", false); // production
 
+  
   if (error) {
     console.error("Error fetching questions:", error);
     throw new Error("Failed to analyze question bank sufficiency");
