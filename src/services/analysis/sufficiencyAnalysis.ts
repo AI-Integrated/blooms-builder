@@ -35,17 +35,12 @@ const normalizeBloom = (bloom: string) => {
 };
 
 export async function analyzeTOSSufficiency(tosMatrix: any): Promise<SufficiencyAnalysis> {
-  // Fetch all approved, non-deleted questions with topic and bloom_level
-const { data, error } = await supabase
-  .from("question")
-  .select("id, topic")
-  .eq("deleted", false)
-  .eq("approved", true); // production
+  // Fetch all non-deleted questions with topic and bloom_level
+  const { data: questions, error } = await supabase
+    .from("questions")
+    .select("id, topic, bloom_level, approved")
+    .eq("deleted", false);
 
-// DEV MODE ONLY (commented):
-// .or("approved.eq.true, approved.is.null")
-
-  
   if (error) {
     console.error("Error fetching questions:", error);
     throw new Error("Failed to analyze question bank sufficiency");
