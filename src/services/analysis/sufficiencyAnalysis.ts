@@ -36,11 +36,14 @@ const normalizeBloom = (bloom: string) => {
 
 export async function analyzeTOSSufficiency(tosMatrix: any): Promise<SufficiencyAnalysis> {
   // Fetch all approved, non-deleted questions with topic and bloom_level
-  const { data: questions, error } = await supabase
-    .from("questions")
-    .select("id, topic, bloom_level, choices, approved")
-     .eq("deleted", false)
+const { data, error } = await supabase
+  .from("question")
+  .select("id, topic")
+  .eq("deleted", false)
   .eq("approved", true); // production
+
+// DEV MODE ONLY (commented):
+// .or("approved.eq.true, approved.is.null")
 
   
   if (error) {
