@@ -9,6 +9,47 @@ interface SufficiencyAnalysisPanelProps {
 }
 
 export function SufficiencyAnalysisPanel({ analysis }: SufficiencyAnalysisPanelProps) {
+
+
+    // 🔹 Aggregate results per topic (FIXES counting issue)
+  const topicSummary = analysis.results.reduce((acc, r) => {
+    if (!acc[r.topic]) {
+      acc[r.topic] = {
+        topic: r.topic,
+        required: 0,
+        available: 0,
+        gap: 0,
+        sufficiency: "pass" as "pass" | "warning" | "fail",
+      };
+    }
+
+    acc[r.topic].required += r.required;
+    acc[r.topic].available += r.available;
+    acc[r.topic].gap += r.gap;
+
+    // Escalate severity: fail > warning > pass
+    if (r.sufficiency === "fail") {
+      acc[r.topic].sufficiency = "fail";
+    } else if (
+      r.sufficiency === "warning" &&
+      acc[r.topic].sufficiency !== "fail"
+    ) {
+      acc[r.topic].sufficiency = "warning";
+    }
+
+    return acc;
+  }, {} as Record<string, {
+    topic: string;
+    required: number;
+    available: number;
+    gap: number;
+    sufficiency: "pass" | "warning" | "fail";
+  }>);
+
+  const topicList = Object.values(topicSummary);
+
+  
+  
   const getStatusIcon = (status: 'pass' | 'warning' | 'fail') => {
     switch (status) {
       case 'pass':
@@ -86,36 +127,45 @@ export function SufficiencyAnalysisPanel({ analysis }: SufficiencyAnalysisPanelP
           </div>
         </div>
 
-        {/* Detailed Results by Topic */}
-        <div>
-          <h4 className="text-sm font-semibold mb-3">Topic-Level Analysis</h4>
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {analysis.results.map((result, index) => (
-              <div 
-                key={index}
-                className={`p-3 rounded-lg border ${getStatusColor(result.sufficiency)}`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-2">
-                    {getStatusIcon(result.sufficiency)}
-                    <div>
-                      <p className="font-medium text-sm">{result.topic}</p>
-                      <p className="text-xs capitalize text-muted-foreground">{result.bloomLevel}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium">
-                      {result.available} / {result.required}
-                    </p>
-                    {result.gap > 0 && (
-                      <p className="text-xs text-red-600">Gap: {result.gap}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
+{/* Topic-Level Analysis */}
+<div>
+  <h4 className="text-sm font-semibold mb-3">Topic-Level Analysis</h4>
+
+  <div className="space-y-2 max-h-96 overflow-y-auto">
+    {topicList.map((topic) => (
+      <div
+        key={topic.topic}
+        className={`p-3 rounded-lg border ${
+          topic.sufficiency === "pass"
+            ? "bg-green-100 dark:bg-green-900/30 border-green-300"
+            : topic.sufficiency === "warning"
+            ? "bg-yellow-100 dark:bg-yellow-900/30 border-yellow-300"
+            : "bg-red-100 dark:bg-red-900/30 border-red-300"
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {topic.sufficiency === "pass" && <CheckCircle className="w-4 h-4 text-green-600" />}
+            {topic.sufficiency === "warning" && <AlertTriangle className="w-4 h-4 text-yellow-600" />}
+            {topic.sufficiency === "fail" && <XCircle className="w-4 h-4 text-red-600" />}
+
+            <p className="font-medium text-sm capitalize">{topic.topic}</p>
+          </div>
+
+          <div className="text-right">
+            <p className="text-sm font-semibold">
+              {topic.available} / {topic.required}
+            </p>
+            {topic.gap > 0 && (
+              <p className="text-xs text-red-600">Gap: {topic.gap}</p>
+            )}
           </div>
         </div>
+      </div>
+    ))}
+  </div>
+</div>
+
 
         {/* Recommendations */}
         {analysis.recommendations.length > 0 && (
