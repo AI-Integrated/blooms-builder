@@ -163,30 +163,15 @@ else if (Array.isArray(tosMatrix.distribution?.[topicName]?.[bloom])) {
   const recommendations: string[] = [];
   const totalGap = results.reduce((sum, r) => sum + r.gap, 0);
 
-  else {
+  if (totalRequired === 0) {
+    recommendations.push("Define TOS requirements to compute question gaps.");
+  } else if (overallStatus === "pass") {
+    recommendations.push("✓ Question bank has sufficient coverage for all topics and bloom levels.");
+  } else {
     if (totalGap > 0) {
       recommendations.push(`AI will generate ${totalGap} additional question(s) to complete the exam.`);
     }
 
-    // Find topics with the largest gaps
-    const failingTopics = results
-      .filter((r) => r.sufficiency === "fail" && r.gap > 0)
-      .sort((a, b) => b.gap - a.gap)
-      .slice(0, 3);
-
-    failingTopics.forEach((t) => {
-      recommendations.push(`Critical: "${t.topic}" (${t.bloomLevel}) needs ${t.gap} more question(s).`);
-    });
-
-    const warningTopics = results
-      .filter((r) => r.sufficiency === "warning" && r.gap > 0)
-      .sort((a, b) => b.gap - a.gap)
-      .slice(0, 2);
-
-    warningTopics.forEach((t) => {
-      recommendations.push(`Warning: "${t.topic}" (${t.bloomLevel}) is ${t.gap} question(s) short.`);
-    });
-  }
 
   return {
     overallStatus,
