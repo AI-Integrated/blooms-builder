@@ -98,7 +98,7 @@ export function SufficiencyAnalysisPanel({ analysis }: SufficiencyAnalysisPanelP
           <Progress value={analysis.overallScore} className="h-2" />
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>{analysis.totalAvailable} approved / {analysis.totalRequired} required</span>
-            <span>{analysis.totalRequired - analysis.totalAvailable} gap</span>
+            <span>{analysis.results.reduce((sum, r) => sum + r.gap, 0)} gap</span>
           </div>
         </div>
 
