@@ -163,7 +163,7 @@ else if (Array.isArray(tosMatrix.distribution?.[topicName]?.[bloom])) {
   const recommendations: string[] = [];
   const totalGap = results.reduce((sum, r) => sum + r.gap, 0);
 
-   if (totalRequired === 0) {
+  if (totalRequired === 0) {
     recommendations.push("Define TOS requirements to compute question gaps.");
   } else if (overallStatus === "pass") {
     recommendations.push("✓ Question bank has sufficient coverage for all topics and bloom levels.");
