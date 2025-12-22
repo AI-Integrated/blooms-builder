@@ -171,6 +171,7 @@ else if (Array.isArray(tosMatrix.distribution?.[topicName]?.[bloom])) {
     if (totalGap > 0) {
       recommendations.push(`AI will generate ${totalGap} additional question(s) to complete the exam.`);
     }
+  }
 
 
   return {
