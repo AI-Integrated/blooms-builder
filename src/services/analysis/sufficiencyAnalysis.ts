@@ -161,7 +161,7 @@ else if (Array.isArray(tosMatrix.distribution?.[topicName]?.[bloom])) {
 
   // Generate recommendations
   const recommendations: string[] = [];
-  const totalGap = totalRequired - totalAvailable;
+  const totalGap = results.reduce((sum, r) => sum + r.gap, 0);
 
   if (totalRequired === 0) {
     recommendations.push("Define TOS requirements to compute question gaps.");
