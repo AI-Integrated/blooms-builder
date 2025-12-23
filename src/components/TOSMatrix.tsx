@@ -4,39 +4,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Download, Printer } from "lucide-react";
 import { PDFExporter } from "@/utils/exportPdf";
 import { toast } from "sonner";
+import { CanonicalTOSMatrix, BloomLevel } from "@/utils/tosCalculator";
 
 interface TOSMatrixProps {
-  data: {
-    id: string;
-    subject_no: string;
-    course: string;
-    description: string;
-    year_section: string;
-    period: string;
-    school_year: string;
-    total_items: number;
-    topics: { name?: string; topic?: string; hours: number }[];
-    matrix: {
-      [topic: string]: {
-        remembering: { count: number; items: number[] };
-        understanding: { count: number; items: number[] };
-        applying: { count: number; items: number[] };
-        analyzing: { count: number; items: number[] };
-        evaluating: { count: number; items: number[] };
-        creating: { count: number; items: number[] };
-      };
-    };
-    totalHours: number;
-    prepared_by: string;
-    noted_by: string;
-    created_at: string;
-  };
+  data: CanonicalTOSMatrix;
 }
 
 export const TOSMatrix = ({ data }: TOSMatrixProps) => {
-  const { matrix, totalHours } = data;
+  const { matrix, total_hours, distribution, bloom_totals } = data;
 
-  const bloomLevels = [
+  const bloomLevels: { key: BloomLevel; label: string; difficulty: string }[] = [
     { key: 'remembering', label: 'Remembering', difficulty: 'Easy' },
     { key: 'understanding', label: 'Understanding', difficulty: 'Easy' },
     { key: 'applying', label: 'Applying', difficulty: 'Average' },
@@ -46,20 +23,13 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
   ];
 
   const getTopicTotal = (topic: string) => {
-    return Object.values(matrix[topic]).reduce((sum, bloomData) => sum + bloomData.count, 0);
-  };
-
-  const getBloomTotal = (bloomKey: string) => {
-    return Object.keys(matrix).reduce((sum, topic) => {
-      return sum + (matrix[topic][bloomKey as keyof typeof matrix[string]]?.count || 0);
-    }, 0);
+    return distribution[topic]?.total || 0;
   };
 
   const formatItemNumbers = (items: number[]) => {
     if (items.length === 0) return "-";
     if (items.length === 1) return items[0].toString();
     
-    // Group consecutive numbers
     const sorted = [...items].sort((a, b) => a - b);
     const groups: string[] = [];
     let start = sorted[0];
@@ -94,16 +64,9 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
   const exportToPDF = async () => {
     try {
       const result = await PDFExporter.exportTOSMatrix(data.id, true);
-      const filename = `TOS_${data.subject_no}_${data.period}.pdf`;
-      
-      // Download the file
+      const filename = `TOS_${data.subject_no}_${data.exam_period}.pdf`;
       PDFExporter.downloadBlob(result.blob, filename);
-      
       toast.success("TOS matrix exported successfully!");
-      
-      if (result.storageUrl) {
-        toast.success("TOS matrix also saved to cloud storage!");
-      }
     } catch (error) {
       toast.error("Failed to export PDF");
       console.error("Export error:", error);
@@ -113,6 +76,9 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
   const handlePrint = () => {
     PDFExporter.printElement('tos-matrix-export', `TOS Matrix - ${data.description}`);
   };
+
+  // Calculate actual matrix total for validation display
+  const actualTotal = Object.values(distribution).reduce((sum, t) => sum + t.total, 0);
 
   return (
     <div className="space-y-6">
@@ -145,7 +111,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
             </div>
             <div className="text-left">
               <p><strong>Year & Section:</strong> {data.year_section}</p>
-              <p><strong>Examination:</strong> {data.period}</p>
+              <p><strong>Examination:</strong> {data.exam_period}</p>
               <p><strong>School Year:</strong> {data.school_year}</p>
             </div>
           </div>
@@ -187,8 +153,9 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
               </TableHeader>
               <TableBody>
                 {data.topics.map((topic) => {
-                  const topicName = topic.name || topic.topic || '';
-                  const percentage = ((topic.hours / totalHours) * 100).toFixed(1);
+                  const topicName = topic.topic;
+                  const topicDist = distribution[topicName];
+                  const percentage = topicDist?.percentage || 0;
                   const topicTotal = getTopicTotal(topicName);
                   
                   return (
@@ -203,7 +170,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
                         {percentage}%
                       </TableCell>
                       {bloomLevels.map((level) => {
-                        const bloomData = matrix[topicName]?.[level.key as keyof typeof matrix[string]];
+                        const bloomData = topicDist?.[level.key];
                         const items = bloomData?.items || [];
                         const count = bloomData?.count || 0;
                         return (
@@ -221,7 +188,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
                       </TableCell>
                       <TableCell className="border border-border text-center p-2 text-[10px]">
                         {formatItemNumbers(
-                          Object.values(matrix[topicName] || {}).flatMap(bloomData => bloomData.items || []).sort((a, b) => a - b)
+                          bloomLevels.flatMap(l => topicDist?.[l.key]?.items || []).sort((a, b) => a - b)
                         )}
                       </TableCell>
                     </TableRow>
@@ -232,18 +199,18 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
                 <TableRow className="bg-muted/50">
                   <TableCell className="border border-border font-bold p-2">TOTAL</TableCell>
                   <TableCell className="border border-border text-center font-bold p-2">
-                    {totalHours}
+                    {total_hours}
                   </TableCell>
                   <TableCell className="border border-border text-center font-bold p-2">
                     100%
                   </TableCell>
                   {bloomLevels.map((level) => (
                     <TableCell key={level.key} className="border border-border text-center font-bold p-2">
-                      {getBloomTotal(level.key)}
+                      {bloom_totals[level.key]}
                     </TableCell>
                   ))}
                   <TableCell className="border border-border text-center font-bold p-2">
-                    {data.total_items}
+                    {actualTotal}
                   </TableCell>
                   <TableCell className="border border-border text-center font-bold p-2">
                     1-{data.total_items}
