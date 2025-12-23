@@ -22,6 +22,14 @@ import { SufficiencyAnalysisPanel } from "@/components/analysis/SufficiencyAnaly
 import { generateTestFromTOS, TOSCriteria } from "@/services/ai/testGenerationService";
 import { analyzeTOSSufficiency } from "@/services/analysis/sufficiencyAnalysis";
 import { useNavigate } from "react-router-dom";
+import { 
+  calculateCanonicalTOSMatrix, 
+  validateTOSMatrix, 
+  CanonicalTOSMatrix,
+  BloomLevel,
+  BLOOM_DISTRIBUTION,
+  getDifficultyForBloom
+} from "@/utils/tosCalculator";
 
 const topicSchema = z.object({
   topic: z.string().min(1, "Topic name is required"),
@@ -36,21 +44,12 @@ const tosSchema = z.object({
   exam_period: z.string().min(1, "Exam period is required"),
   school_year: z.string().min(1, "School year is required"),
   total_items: z.number().min(10, "Minimum 10 items required").max(100, "Maximum 100 items allowed"),
+  prepared_by: z.string().optional(),
+  noted_by: z.string().optional(),
   topics: z.array(topicSchema).min(1, "At least one topic is required")
 });
 
 type TOSFormData = z.infer<typeof tosSchema>;
-
-interface BloomDistribution {
-  [topic: string]: {
-    remembering: number[];
-    understanding: number[];
-    applying: number[];
-    analyzing: number[];
-    evaluating: number[];
-    creating: number[];
-  };
-}
 
 interface TOSBuilderProps {
   onBack: () => void;
@@ -59,7 +58,7 @@ interface TOSBuilderProps {
 export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   const navigate = useNavigate();
   const [topics, setTopics] = useState([{ topic: "", hours: 0 }]);
-  const [tosMatrix, setTosMatrix] = useState<any>(null);
+  const [tosMatrix, setTosMatrix] = useState<CanonicalTOSMatrix | null>(null);
   const [showMatrix, setShowMatrix] = useState(false);
   const [sufficiencyAnalysis, setSufficiencyAnalysis] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -70,8 +69,8 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
 
   // Real-time collaboration setup
   const { users: presenceUsers, isConnected } = usePresence('tos-builder', {
-    name: 'Current User', // This should come from auth context
-    email: 'user@example.com' // This should come from auth context
+    name: 'Current User',
+    email: 'user@example.com'
   });
 
   // Real-time updates for TOS changes
@@ -80,7 +79,6 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     onChange: (payload) => {
       if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
         toast.info('TOS updated by collaborator');
-        // Optionally refresh data or show notification
       }
     }
   });
@@ -89,6 +87,8 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     resolver: zodResolver(tosSchema),
     defaultValues: {
       total_items: 50,
+      prepared_by: "",
+      noted_by: "",
       topics: topics
     }
   });
@@ -118,103 +118,49 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     setValue("topics", newTopics);
   };
 
-  const calculateTOSMatrix = (data: TOSFormData) => {
-    const totalHours = data.topics.reduce((sum, topic) => sum + topic.hours, 0);
-    
-    if (totalHours === 0) {
-      toast.error("Please add instructional hours for topics");
-      return null;
-    }
-
-    // Bloom's taxonomy distribution percentages
-    const bloomDistribution = {
-      remembering: 0.15,   // 15% (Easy)
-      understanding: 0.15, // 15% (Easy)
-      applying: 0.20,      // 20% (Average)
-      analyzing: 0.20,     // 20% (Average)
-      evaluating: 0.15,    // 15% (Difficult)
-      creating: 0.15       // 15% (Difficult)
-    };
-
-    const distribution: BloomDistribution = {};
-    let itemCounter = 1;
-
-    data.topics.forEach(topic => {
-      const topicPercentage = topic.hours / totalHours;
-      const topicItems = Math.round(data.total_items * topicPercentage);
-      
-      distribution[topic.topic] = {
-        remembering: [],
-        understanding: [],
-        applying: [],
-        analyzing: [],
-        evaluating: [],
-        creating: []
-      };
-
-      // Distribute items across Bloom levels for this topic
-      Object.keys(bloomDistribution).forEach(bloomLevel => {
-        const itemsForLevel = Math.round(topicItems * bloomDistribution[bloomLevel as keyof typeof bloomDistribution]);
-        
-        for (let i = 0; i < itemsForLevel; i++) {
-          distribution[topic.topic][bloomLevel as keyof typeof distribution[string]].push(itemCounter);
-          itemCounter++;
-        }
-      });
-    });
-
-    // Adjust for any rounding discrepancies
-    while (itemCounter <= data.total_items) {
-      // Add remaining items to the first topic's "understanding" level
-      const firstTopic = data.topics[0].topic;
-      distribution[firstTopic].understanding.push(itemCounter);
-      itemCounter++;
-    }
-
-    // Build the matrix format expected by the system
-    const matrix: Record<string, Record<string, { count: number; items: number[] }>> = {};
-    
-    Object.entries(distribution).forEach(([topicName, bloomData]) => {
-      matrix[topicName] = {};
-      Object.entries(bloomData).forEach(([bloomLevel, items]) => {
-        matrix[topicName][bloomLevel] = {
-          count: items.length,
-          items: items
-        };
-      });
-    });
-    return {
-      id: crypto.randomUUID(), // Temporary ID for new TOS
-      title: `${data.subject_no} - ${data.exam_period} Examination`,
-      subject_no: data.subject_no,
-      course: data.course,
-      description: data.description,
-      year_section: data.year_section,
-      exam_period: data.exam_period,
-      school_year: data.school_year,
-      total_items: data.total_items,
-      topics: data.topics,
-      matrix,
-      prepared_by: "Teacher",
-      noted_by: "Dean, CCIS",
-      // Keep these for UI display only (not saved to DB)
-      bloom_distribution: bloomDistribution,
-      totalHours
-    };
-  };
-
   const onSubmit = (data: TOSFormData) => {
-    const matrix = calculateTOSMatrix(data);
-    if (matrix) {
+    try {
+      // Validate and convert topics to required format
+      const validTopics = data.topics
+        .filter(t => t.topic && t.hours > 0)
+        .map(t => ({ topic: t.topic!, hours: t.hours! }));
+      
+      if (validTopics.length === 0) {
+        toast.error("Please add at least one topic with hours");
+        return;
+      }
+
+      // Use the canonical calculator
+      const matrix = calculateCanonicalTOSMatrix({
+        subject_no: data.subject_no,
+        course: data.course,
+        description: data.description,
+        year_section: data.year_section,
+        exam_period: data.exam_period,
+        school_year: data.school_year,
+        total_items: data.total_items,
+        prepared_by: data.prepared_by || "Teacher",
+        noted_by: data.noted_by || "Dean",
+        topics: validTopics
+      });
+
+      // Validate the matrix before proceeding
+      validateTOSMatrix(matrix);
+      
       setTosMatrix(matrix);
       setShowMatrix(true);
+      
       // Analyze sufficiency when matrix is generated
       analyzeSufficiency(matrix);
-      toast.success("TOS Matrix generated successfully!");
+      
+      toast.success(`TOS Matrix generated successfully! Total: ${matrix.total_items} items`);
+    } catch (error) {
+      console.error('Error generating TOS:', error);
+      toast.error(error instanceof Error ? error.message : "Failed to generate TOS matrix");
     }
   };
 
-  const analyzeSufficiency = async (matrix: any) => {
+  const analyzeSufficiency = async (matrix: CanonicalTOSMatrix) => {
     setIsAnalyzing(true);
     try {
       const analysis = await analyzeTOSSufficiency(matrix);
@@ -245,13 +191,25 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     if (!tosMatrix) return;
     
     try {
-      // Remove fields not in database schema
-      const { id, totalHours, bloom_distribution, ...tosData } = tosMatrix;
-
-       tosData.title = `${tosData.subject_no} - ${tosData.exam_period} Examination`;
+      // Prepare data for database (remove computed fields)
+      const tosData = {
+        title: tosMatrix.title,
+        subject_no: tosMatrix.subject_no,
+        course: tosMatrix.course,
+        description: tosMatrix.description,
+        year_section: tosMatrix.year_section,
+        exam_period: tosMatrix.exam_period,
+        school_year: tosMatrix.school_year,
+        total_items: tosMatrix.total_items,
+        prepared_by: tosMatrix.prepared_by,
+        noted_by: tosMatrix.noted_by,
+        topics: tosMatrix.topics,
+        matrix: tosMatrix.matrix,
+        distribution: tosMatrix.distribution
+      };
       
       const savedTOS = await TOS.create(tosData);
-      setTosMatrix({ ...savedTOS, totalHours: tosMatrix.totalHours, bloom_distribution: tosMatrix.bloom_distribution });
+      setTosMatrix({ ...tosMatrix, id: savedTOS.id });
       
       toast.success("TOS matrix saved successfully!");
     } catch (error) {
@@ -266,7 +224,6 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       return;
     }
 
-    // Validate TOS data structure
     if (!tosMatrix.topics || !Array.isArray(tosMatrix.topics)) {
       toast.error("TOS data is incomplete. Cannot generate test.");
       return;
@@ -277,16 +234,14 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     setGenerationStatus("Initializing test generation...");
     
     try {
-      // Save TOS to database first - CRITICAL: Must exist before generating test
+      // Save TOS to database first
       let savedTOSId = tosMatrix.id;
       
       console.log("🔍 Verifying TOS before test generation...", { currentId: savedTOSId });
       
-      // Always verify and create TOS if needed
       let tosExists = false;
       
       if (savedTOSId && !savedTOSId.startsWith('temp-')) {
-        // Check if TOS actually exists in database
         try {
           const existingTOS = await TOS.getById(savedTOSId);
           tosExists = !!existingTOS;
@@ -297,15 +252,28 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         }
       }
       
-      // If TOS doesn't exist or has temp ID, create it now
-      if (!tosExists || !savedTOSId || savedTOSId.startsWith('temp-')) {
+      if (!tosExists) {
         setGenerationStatus("Saving TOS to database...");
         console.log("💾 Creating new TOS entry in database...");
         
-        const { id, totalHours, bloom_distribution, ...tosDataWithoutId } = tosMatrix;
+        const tosData = {
+          title: tosMatrix.title,
+          subject_no: tosMatrix.subject_no,
+          course: tosMatrix.course,
+          description: tosMatrix.description,
+          year_section: tosMatrix.year_section,
+          exam_period: tosMatrix.exam_period,
+          school_year: tosMatrix.school_year,
+          total_items: tosMatrix.total_items,
+          prepared_by: tosMatrix.prepared_by,
+          noted_by: tosMatrix.noted_by,
+          topics: tosMatrix.topics,
+          matrix: tosMatrix.matrix,
+          distribution: tosMatrix.distribution
+        };
         
         try {
-          const savedTOS = await TOS.create(tosDataWithoutId);
+          const savedTOS = await TOS.create(tosData);
           
           if (!savedTOS || !savedTOS.id) {
             throw new Error("TOS creation failed - no ID returned");
@@ -320,8 +288,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         }
       }
       
-      // Final validation - ensure we have a valid TOS ID
-      if (!savedTOSId || savedTOSId.startsWith('temp-')) {
+      if (!savedTOSId) {
         throw new Error("Invalid TOS ID - cannot generate test");
       }
       
@@ -330,60 +297,23 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       setGenerationProgress(20);
       setGenerationStatus("Analyzing TOS matrix and building criteria...");
       
-      // Build criteria from TOS topics – support both legacy `distribution` and new `matrix` shapes
+      // Build criteria from the canonical TOS matrix
       const criteria: TOSCriteria[] = [];
+      const bloomLevels: BloomLevel[] = ['remembering', 'understanding', 'applying', 'analyzing', 'evaluating', 'creating'];
 
-      const difficultyFor = (bloom: string) => {
-        const b = bloom.toLowerCase();
-        if (b === 'remembering' || b === 'understanding') return 'easy';
-        if (b === 'applying' || b === 'analyzing') return 'average';
-        return 'difficult'; // evaluating, creating
-      };
-
-      // STEP 4: Validate TOS structure
-      console.log(`📦 Step 4: Validating TOS structure...`);
-      
-      if (!tosMatrix || !tosMatrix.topics || tosMatrix.topics.length === 0) {
-        setIsGeneratingTest(false);
-        toast.error('TOS data is missing or incomplete. Cannot generate test.');
-        return;
-      }
-
-      // STEP 5: Process TOS matrix distribution
-      console.log(`📦 Step 5: Processing TOS matrix criteria...`);
-
-      const levels: Array<keyof any> = [
-        'remembering',
-        'understanding',
-        'applying',
-        'analyzing',
-        'evaluating',
-        'creating',
-      ];
-
-      for (const topic of (tosMatrix.topics || [])) {
-        const topicName = topic.name || topic.topic; // tolerate both shapes
-        if (!topicName) continue;
-
-        const matrixEntry = tosMatrix.matrix?.[topicName];
-        const distributionEntry = tosMatrix.distribution?.[topicName];
-
-        for (const level of levels) {
-          let count = 0;
-          // New matrix format: { count, items }
-          if (matrixEntry?.[level]?.count != null) {
-            count = Number(matrixEntry[level].count) || 0;
-          } else if (Array.isArray(distributionEntry?.[level])) {
-            // Legacy distribution arrays
-            count = (distributionEntry[level] as number[]).length;
-          }
-
+      for (const [topicName, topicData] of Object.entries(tosMatrix.distribution)) {
+        for (const level of bloomLevels) {
+          const count = topicData[level].count;
+          
           if (count > 0) {
             criteria.push({
               topic: topicName,
-              bloom_level: String(level),
-              knowledge_dimension: level === 'remembering' ? 'Factual' : level === 'applying' ? 'Procedural' : level === 'creating' || level === 'evaluating' ? 'Metacognitive' : 'Conceptual',
-              difficulty: difficultyFor(String(level)),
+              bloom_level: level,
+              knowledge_dimension: level === 'remembering' ? 'Factual' 
+                : level === 'applying' ? 'Procedural' 
+                : (level === 'creating' || level === 'evaluating') ? 'Metacognitive' 
+                : 'Conceptual',
+              difficulty: getDifficultyForBloom(level),
               count,
             });
           }
@@ -400,8 +330,8 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       setGenerationStatus("Querying question bank and generating AI questions...");
       
       const testData = {
-        title: `${tosMatrix.course || 'Examination'} - ${tosMatrix.exam_period || 'Test'}`,
-        subject: tosMatrix.subject_no || tosMatrix.subject || tosMatrix.course,
+        title: tosMatrix.title,
+        subject: tosMatrix.subject_no || tosMatrix.course,
         course: tosMatrix.course,
         year_section: tosMatrix.year_section,
         exam_period: tosMatrix.exam_period,
@@ -409,7 +339,6 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         tos_id: savedTOSId,
       };
 
-      // Use the test generation service with AI fallback
       const result = await generateTestFromTOS(criteria, testData.title, testData);
       
       setGenerationProgress(90);
@@ -420,7 +349,6 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       
       toast.success(`Successfully generated test!`);
       
-      // Redirect to the generated test page using consistent route
       setTimeout(() => {
         navigate(`/teacher/generated-test/${result.id}`);
       }, 500);
@@ -453,6 +381,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
             </Button>
           </div>
         </div>
+        
         <TOSMatrix data={tosMatrix} />
         
         {/* Sufficiency Analysis */}
@@ -608,6 +537,24 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                   <p className="text-sm text-destructive mt-1">{errors.total_items.message}</p>
                 )}
               </div>
+
+              <div>
+                <Label htmlFor="preparedBy">Prepared By</Label>
+                <Input
+                  id="preparedBy"
+                  {...register("prepared_by")}
+                  placeholder="e.g., Teacher Name"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="notedBy">Noted By</Label>
+                <Input
+                  id="notedBy"
+                  {...register("noted_by")}
+                  placeholder="e.g., Dean Name"
+                />
+              </div>
             </div>
 
             <Separator />
@@ -664,7 +611,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
             {/* Bloom's Taxonomy Distribution Info */}
             <Card className="bg-muted/50">
               <CardContent className="pt-4">
-                <h4 className="font-semibold mb-3">Bloom's Taxonomy Distribution</h4>
+                <h4 className="font-semibold mb-3">Bloom's Taxonomy Distribution (Fixed Quotas)</h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                   <div>
                     <strong>Easy (30%):</strong>
@@ -688,6 +635,9 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                     </ul>
                   </div>
                 </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  These quotas are enforced exactly. The matrix total will always equal your input total.
+                </p>
               </CardContent>
             </Card>
 
