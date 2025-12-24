@@ -144,7 +144,16 @@ else if (Array.isArray(tosMatrix.distribution?.[topicName]?.[bloom])) {
   const totalGap = results.reduce((sum, r) => sum + r.gap, 0);
   const overallScore = totalRequired === 0 ? 100 : Math.min(100, (totalAvailable / totalRequired) * 100);
 
-
+  let overallStatus: "pass" | "warning" | "fail";
+if (totalRequired === 0) {
+  overallStatus = "pass";
+} else if (totalGap === 0) {
+  overallStatus = "pass";
+} else if (overallScore >= 70) {
+  overallStatus = "warning";
+} else {
+  overallStatus = "fail";
+}
 
 
   // Generate recommendations
