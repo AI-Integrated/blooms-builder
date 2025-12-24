@@ -119,7 +119,7 @@ else if (Array.isArray(tosMatrix.distribution?.[topicName]?.[bloom])) {
       }
 
       totalRequired += required;
-      totalAvailable += available;
+      totalAvailable += Math.min(available, required);
 
       const gap = Math.max(0, required - available);
 
@@ -146,22 +146,23 @@ else if (Array.isArray(tosMatrix.distribution?.[topicName]?.[bloom])) {
   }
 
   // Calculate overall score and status
+  const totalGap = results.reduce((sum, r) => sum + r.gap, 0);
   const overallScore = totalRequired === 0 ? 100 : Math.min(100, (totalAvailable / totalRequired) * 100);
 
   let overallStatus: "pass" | "warning" | "fail";
-  if (totalRequired === 0) {
-    overallStatus = "pass";
-  } else if (overallScore >= 100) {
-    overallStatus = "pass";
-  } else if (overallScore >= 70) {
-    overallStatus = "warning";
-  } else {
-    overallStatus = "fail";
-  }
+if (totalRequired === 0) {
+  overallStatus = "pass";
+} else if (totalGap === 0) {
+  overallStatus = "pass";
+} else if (overallScore >= 70) {
+  overallStatus = "warning";
+} else {
+  overallStatus = "fail";
+}
+
 
   // Generate recommendations
   const recommendations: string[] = [];
-  const totalGap = results.reduce((sum, r) => sum + r.gap, 0);
 
   if (totalRequired === 0) {
     recommendations.push("Define TOS requirements to compute question gaps.");
