@@ -139,8 +139,8 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         exam_period: data.exam_period,
         school_year: data.school_year,
         total_items: data.total_items,
-        prepared_by: data.prepared_by || "Teacher",
-        noted_by: data.noted_by || "Dean",
+        prepared_by: data.prepared_by || "",
+        noted_by: data.noted_by || "",
         topics: validTopics
       });
 
