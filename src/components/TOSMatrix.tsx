@@ -229,14 +229,14 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
               <div className="border-b border-black pb-1 mb-2">
                 <strong>{data.prepared_by}</strong>
               </div>
-              <p className="text-sm">Faculty</p>
+              <p className="text-sm"> </p>
             </div>
             <div className="text-center">
               <p className="mb-8">Noted by:</p>
               <div className="border-b border-black pb-1 mb-2">
                 <strong>{data.noted_by}</strong>
               </div>
-              <p className="text-sm">Dean, CCIS</p>
+              <p className="text-sm"> </p>
             </div>
           </div>
         </div>
