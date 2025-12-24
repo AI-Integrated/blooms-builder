@@ -123,16 +123,11 @@ else if (Array.isArray(tosMatrix.distribution?.[topicName]?.[bloom])) {
 
       const gap = Math.max(0, required - available);
 
-      let sufficiency: "pass" | "warning" | "fail";
-      if (required === 0) {
-        sufficiency = "pass";
-      } else if (available >= required) {
-        sufficiency = "pass";
-      } else if (available >= required * 0.7) {
-        sufficiency = "warning";
-      } else {
-        sufficiency = "fail";
-      }
+
+
+
+
+      
 
       results.push({
         topic: topicName,
@@ -149,16 +144,7 @@ else if (Array.isArray(tosMatrix.distribution?.[topicName]?.[bloom])) {
   const totalGap = results.reduce((sum, r) => sum + r.gap, 0);
   const overallScore = totalRequired === 0 ? 100 : Math.min(100, (totalAvailable / totalRequired) * 100);
 
-  let overallStatus: "pass" | "warning" | "fail";
-if (totalRequired === 0) {
-  overallStatus = "pass";
-} else if (totalGap === 0) {
-  overallStatus = "pass";
-} else if (overallScore >= 70) {
-  overallStatus = "warning";
-} else {
-  overallStatus = "fail";
-}
+
 
 
   // Generate recommendations
