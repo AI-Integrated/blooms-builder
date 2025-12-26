@@ -13,7 +13,6 @@ import {
   Users,
   FileText
 } from 'lucide-react';
-import { QualityDashboard } from '@/components/quality/QualityDashboard';
 import { TaxonomyMatrix } from '@/components/classification/TaxonomyMatrix';
 import PsychometricDashboard from '@/components/analytics/PsychometricDashboard';
 import { EnhancedQuestionForm } from '@/components/enhanced/EnhancedQuestionForm';
@@ -103,10 +102,7 @@ export const EnhancedDashboard: React.FC<EnhancedDashboardProps> = ({
           />
         </TabsContent>
 
-        <TabsContent value="quality">
-          <QualityDashboard />
-        </TabsContent>
-
+        
         <TabsContent value="taxonomy">
           <div className="space-y-6">
             <div className="flex items-center justify-between">
