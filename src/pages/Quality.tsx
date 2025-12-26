@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { Shield, Activity, BarChart3, CheckCircle2, AlertTriangle } from 'lucide-react';
 import PsychometricDashboard from '@/components/analytics/PsychometricDashboard';
 import ValidationDashboard from '@/components/testing/ValidationDashboard';
-import { QualityDashboard } from '@/components/quality/QualityDashboard';
 import { useQualityMetrics } from '@/hooks/useQualityMetrics';
 
 export default function Quality() {
@@ -173,10 +172,7 @@ export default function Quality() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="iso25010">
-          <QualityDashboard />
-        </TabsContent>
-
+       
         <TabsContent value="psychometric">
           <PsychometricDashboard />
         </TabsContent>
