@@ -28,7 +28,6 @@ import ProfessionalExport from "./pages/ProfessionalExport";
 import Rubrics from "./pages/Rubrics";
 import Tests from "./pages/Tests";
 import Collaboration from "./pages/Collaboration";
-import Quality from "./pages/Quality";
 import TestAssembly from "./pages/TestAssembly";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AdminLayout } from "./components/layout/AdminLayout";
