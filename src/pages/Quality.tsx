@@ -172,7 +172,18 @@ export default function Quality() {
           </Card>
         </TabsContent>
 
-       
+        <TabsContent value="iso25010">
+          <Card>
+            <CardHeader>
+              <CardTitle>ISO 25010 Quality Model</CardTitle>
+              <CardDescription>Software product quality characteristics</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground">ISO 25010 detailed analysis coming soon.</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="psychometric">
           <PsychometricDashboard />
         </TabsContent>
