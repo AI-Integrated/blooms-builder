@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { questions } = await req.json();
+    const { questions, classifyType } = await req.json();
     
     if (!questions || !Array.isArray(questions)) {
       return new Response(
@@ -32,14 +32,47 @@ serve(async (req) => {
       );
     }
 
-    const classifications = [];
+    // Check if this is a knowledge-dimension-only classification
+    const isKnowledgeOnly = classifyType === 'knowledge_dimension';
+
+    const results = [];
 
     // Process questions in batches to avoid rate limits
     const batchSize = 5;
     for (let i = 0; i < questions.length; i += batchSize) {
       const batch = questions.slice(i, i + batchSize);
       
-      const prompt = `Classify each of the following educational questions according to:
+      let prompt: string;
+      
+      if (isKnowledgeOnly) {
+        // Knowledge dimension only classification
+        prompt = `Classify each of the following exam questions into ONE knowledge dimension:
+
+Knowledge Dimensions:
+- Factual: Basic elements, terminology, specific details, facts
+- Conceptual: Theories, principles, models, classifications, relationships
+- Procedural: Methods, techniques, algorithms, step-by-step processes
+- Metacognitive: Self-awareness, strategic thinking, reflection on learning
+
+Questions to classify:
+${batch.map((q: any, index: number) => `${i + index + 1}. ${q.text}`).join('\n')}
+
+Return a JSON object with a "results" array:
+{
+  "results": [
+    {
+      "index": 0,
+      "knowledge_dimension": "conceptual",
+      "confidence": 0.85,
+      "reasoning": "Brief explanation"
+    }
+  ]
+}
+
+IMPORTANT: knowledge_dimension must be lowercase (factual, conceptual, procedural, metacognitive).`;
+      } else {
+        // Full classification (Bloom + Knowledge + Difficulty)
+        prompt = `Classify each of the following educational questions according to:
 1. Bloom's Taxonomy Level (Remembering, Understanding, Applying, Analyzing, Evaluating, Creating)
 2. Knowledge Dimension (Factual, Conceptual, Procedural, Metacognitive)
 3. Difficulty Level (Easy, Average, Difficult)
@@ -47,19 +80,22 @@ serve(async (req) => {
 Questions to classify:
 ${batch.map((q: any, index: number) => `${i + index + 1}. ${q.text}`).join('\n')}
 
-Return a JSON object with a "classifications" array containing objects in this exact format:
+Return a JSON object with a "results" array containing objects in this exact format:
 {
-  "classifications": [
+  "results": [
     {
       "index": 0,
       "bloom_level": "Understanding",
-      "knowledge_dimension": "Conceptual", 
+      "knowledge_dimension": "conceptual",
       "difficulty": "Average",
       "confidence": 0.85,
       "reasoning": "Brief explanation of classification"
     }
   ]
-}`;
+}
+
+IMPORTANT: knowledge_dimension must be lowercase (factual, conceptual, procedural, metacognitive).`;
+      }
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -72,7 +108,7 @@ Return a JSON object with a "classifications" array containing objects in this e
           messages: [
             {
               role: 'system',
-              content: 'You are an expert in educational assessment and Bloom\'s taxonomy. Classify questions accurately based on cognitive demands and knowledge types.'
+              content: 'You are an expert in educational assessment, Bloom\'s taxonomy, and Anderson & Krathwohl\'s knowledge dimensions. Classify questions accurately based on cognitive demands and knowledge types.'
             },
             {
               role: 'user',
@@ -88,15 +124,15 @@ Return a JSON object with a "classifications" array containing objects in this e
       if (!response.ok) {
         console.error('OpenAI API error for batch:', await response.text());
         // Return rule-based classification as fallback
-        const fallbackClassifications = batch.map((q: any, batchIndex: number) => ({
+        const fallbackResults = batch.map((q: any, batchIndex: number) => ({
           index: i + batchIndex,
           bloom_level: 'Understanding',
-          knowledge_dimension: 'Conceptual',
+          knowledge_dimension: 'conceptual',
           difficulty: 'Average',
           confidence: 0.5,
           reasoning: 'Fallback classification due to AI service error'
         }));
-        classifications.push(...fallbackClassifications);
+        results.push(...fallbackResults);
         continue;
       }
 
@@ -104,26 +140,28 @@ Return a JSON object with a "classifications" array containing objects in this e
       
       try {
         const content = JSON.parse(aiResponse.choices[0].message.content);
-        const batchClassifications = content.classifications || [];
+        const batchResults = content.results || content.classifications || [];
         
         // Validate and add to results
-        for (const classification of batchClassifications) {
-          if (classification.index !== undefined) {
-            classifications.push(classification);
+        for (const result of batchResults) {
+          // Normalize knowledge_dimension to lowercase
+          if (result.knowledge_dimension) {
+            result.knowledge_dimension = result.knowledge_dimension.toLowerCase();
           }
+          results.push(result);
         }
       } catch (parseError) {
         console.error('Failed to parse AI response for batch:', parseError);
         // Add fallback classifications
-        const fallbackClassifications = batch.map((q: any, batchIndex: number) => ({
+        const fallbackResults = batch.map((q: any, batchIndex: number) => ({
           index: i + batchIndex,
           bloom_level: 'Understanding',
-          knowledge_dimension: 'Conceptual',
+          knowledge_dimension: 'conceptual',
           difficulty: 'Average',
           confidence: 0.5,
           reasoning: 'Fallback classification due to parsing error'
         }));
-        classifications.push(...fallbackClassifications);
+        results.push(...fallbackResults);
       }
 
       // Small delay to respect rate limits
@@ -133,7 +171,7 @@ Return a JSON object with a "classifications" array containing objects in this e
     return new Response(
       JSON.stringify({
         success: true,
-        classifications
+        results
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
