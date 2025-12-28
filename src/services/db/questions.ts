@@ -1,6 +1,8 @@
 // Question service - handles all question-related database operations
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import type { KnowledgeDimension } from "@/types/knowledge";
+import { quickClassifyKnowledgeDimension } from "@/services/analysis/knowledgeDeterminer";
 
 export type Question = Database['public']['Tables']['questions']['Row'];
 export type QuestionInsert = Database['public']['Tables']['questions']['Insert'];
@@ -16,6 +18,7 @@ export interface QuestionFilters {
   term?: string;
   tags?: string[];
   search?: string;
+  knowledge_dimension?: KnowledgeDimension;
 }
 
 // Convert database question to component-compatible format
@@ -60,6 +63,9 @@ export const Questions = {
     if (filters.search) {
       query = query.textSearch('search_vector', filters.search);
     }
+    if (filters.knowledge_dimension) {
+      query = query.eq('knowledge_dimension', filters.knowledge_dimension);
+    }
 
     const { data, error } = await query.order('created_at', { ascending: false });
     
@@ -82,8 +88,15 @@ export const Questions = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    // Auto-classify knowledge dimension if not provided
+    let knowledgeDimension = question.knowledge_dimension;
+    if (!knowledgeDimension && question.question_text) {
+      knowledgeDimension = quickClassifyKnowledgeDimension(question.question_text);
+    }
+
     const questionData = {
       ...question,
+      knowledge_dimension: knowledgeDimension,
       approved: false
     };
 
@@ -122,10 +135,18 @@ export const Questions = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    const questionsData = questions.map(q => ({
-      ...q,
-      approved: false
-    }));
+    // Auto-classify knowledge dimension for each question
+    const questionsData = questions.map(q => {
+      let knowledgeDimension = q.knowledge_dimension;
+      if (!knowledgeDimension && q.question_text) {
+        knowledgeDimension = quickClassifyKnowledgeDimension(q.question_text);
+      }
+      return {
+        ...q,
+        knowledge_dimension: knowledgeDimension,
+        approved: false
+      };
+    });
 
     const { data, error } = await supabase
       .from('questions')
