@@ -1,12 +1,17 @@
 /**
  * Bloom × Knowledge Constrained Question Generator
  * 
- * Generates questions with strict pedagogical constraints.
- * AI operates inside academic boundaries.
+ * This module provides both the legacy generation API and the new
+ * intent-driven pipeline. Use the intent-driven pipeline for
+ * redundancy-resistant generation.
  */
 
 import { supabase } from '@/integrations/supabase/client';
 import type { KnowledgeDimension, BloomKnowledgeConstraint } from '@/types/knowledge';
+
+// Re-export the intent-driven generator for new code
+export { generateWithIntent, generateSingleWithIntent, IntentRegistry } from './intentDrivenGenerator';
+export type { IntentDrivenQuestion, IntentDrivenGenerationResult } from './intentDrivenGenerator';
 
 interface GeneratedQuestion {
   text: string;
@@ -34,20 +39,21 @@ const BLOOM_INSTRUCTIONS: Record<string, string> = {
 };
 
 const KNOWLEDGE_INSTRUCTIONS: Record<KnowledgeDimension, string> = {
-  'factual': 'Target factual knowledge: terminology, specific details, basic elements. Questions should test recall of facts, definitions, or specific information.',
-  'conceptual': 'Target conceptual knowledge: theories, principles, models, classifications. Questions should test understanding of relationships and interrelations.',
-  'procedural': 'Target procedural knowledge: methods, techniques, algorithms, processes. Questions should test ability to apply procedures or solve problems step-by-step.',
-  'metacognitive': 'Target metacognitive knowledge: self-awareness, strategic thinking. Questions should require reflection on thinking processes, strategy evaluation, or learning approach assessment.'
+  'factual': 'Target factual knowledge: terminology, specific details, basic elements.',
+  'conceptual': 'Target conceptual knowledge: theories, principles, models, classifications.',
+  'procedural': 'Target procedural knowledge: methods, techniques, algorithms, processes.',
+  'metacognitive': 'Target metacognitive knowledge: self-awareness, strategic thinking.'
 };
 
 const DIFFICULTY_INSTRUCTIONS: Record<string, string> = {
-  'Easy': 'Simple, straightforward questions with clear answers. Basic application of knowledge.',
-  'Average': 'Moderate complexity requiring thought and understanding. May involve some analysis.',
-  'Difficult': 'Complex questions requiring deep analysis, synthesis, or evaluation. May have nuanced answers.'
+  'Easy': 'Simple, straightforward questions with clear answers.',
+  'Average': 'Moderate complexity requiring thought and understanding.',
+  'Difficult': 'Complex questions requiring deep analysis or synthesis.'
 };
 
 /**
- * Generate a single question with Bloom × Knowledge constraints
+ * @deprecated Use generateWithIntent() from intentDrivenGenerator for redundancy-resistant generation
+ * Generate a single question with Bloom × Knowledge constraints (legacy API)
  */
 export async function generateConstrainedQuestion(
   constraint: BloomKnowledgeConstraint
@@ -57,7 +63,8 @@ export async function generateConstrainedQuestion(
 }
 
 /**
- * Generate multiple questions with Bloom × Knowledge constraints
+ * @deprecated Use generateWithIntent() from intentDrivenGenerator for redundancy-resistant generation
+ * Generate multiple questions with Bloom × Knowledge constraints (legacy API)
  */
 export async function generateConstrainedQuestions(
   constraint: BloomKnowledgeConstraint & { count?: number; questionType?: 'mcq' | 'essay' }
@@ -121,7 +128,6 @@ export function validateQuestionConstraints(
 ): { valid: boolean; issues: string[] } {
   const issues: string[] = [];
 
-  // Basic validation
   if (!question.text || question.text.length < 10) {
     issues.push('Question text too short');
   }
@@ -134,7 +140,6 @@ export function validateQuestionConstraints(
     issues.push('Missing knowledge dimension');
   }
 
-  // MCQ validation
   if (question.choices) {
     const choiceKeys = Object.keys(question.choices);
     if (choiceKeys.length < 2) {
