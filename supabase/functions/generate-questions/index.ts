@@ -1,11 +1,55 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+/**
+ * HIGHER ORDER BLOOM LEVELS - These FORBID generic listing
+ */
+const HIGHER_ORDER_BLOOMS = ['Analyzing', 'Evaluating', 'Creating'];
+
+/**
+ * FIX #4: Forbidden patterns for higher-order Bloom levels
+ */
+const FORBIDDEN_LISTING_PATTERNS = [
+  /\b(include|includes)\b/i,
+  /\bsuch as\b/i,
+  /\bfactors\s+(are|include)\b/i,
+  /\bkey\s+(factors|elements|components)\s+(are|include)\b/i,
+];
+
+/**
+ * Get default answer type based on Bloom level
+ */
+function getDefaultAnswerType(bloomLevel: string): string {
+  const defaults: Record<string, string> = {
+    'Remembering': 'definition',
+    'Understanding': 'explanation',
+    'Applying': 'application',
+    'Analyzing': 'analysis',
+    'Evaluating': 'evaluation',
+    'Creating': 'design',
+  };
+  return defaults[bloomLevel] || 'explanation';
+}
+
+/**
+ * FIX #4: Check if answer violates structural constraints
+ */
+function shouldRejectAnswer(answerType: string, answer: string, bloomLevel: string): boolean {
+  if (answerType === 'definition') return false;
+  
+  const isHigherOrder = HIGHER_ORDER_BLOOMS.includes(bloomLevel);
+  if (isHigherOrder) {
+    for (const pattern of FORBIDDEN_LISTING_PATTERNS) {
+      if (pattern.test(answer)) return true;
+    }
+  }
+  return false;
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -48,14 +92,14 @@ serve(async (req) => {
       );
     }
 
-    // Create prompt based on Bloom's level and difficulty
-    const bloomInstructions = {
-      'Remembering': 'Focus on recall, recognition, and basic facts. Use verbs like define, list, identify, state.',
-      'Understanding': 'Focus on comprehension and explanation. Use verbs like explain, summarize, describe, interpret.',
-      'Applying': 'Focus on using knowledge in new situations. Use verbs like apply, use, implement, solve.',
-      'Analyzing': 'Focus on breaking down information. Use verbs like analyze, compare, examine, categorize.',
-      'Evaluating': 'Focus on making judgments. Use verbs like evaluate, justify, critique, assess.',
-      'Creating': 'Focus on producing new work. Use verbs like design, create, compose, formulate.'
+    // FIX #1 & #2: Bloom instructions now forbid generic listing for higher levels
+    const bloomInstructions: Record<string, string> = {
+      'Remembering': 'Focus on recall, recognition, and basic facts. Use verbs like define, list, identify, state. Answer type: definition.',
+      'Understanding': 'Focus on comprehension and explanation. Use verbs like explain, summarize, describe, interpret. Answer type: explanation.',
+      'Applying': 'Focus on using knowledge in new situations. Use verbs like apply, use, implement, solve. Answer type: application.',
+      'Analyzing': 'Focus on breaking down information and relationships. Use verbs like analyze, compare, differentiate, examine. Answer type: analysis. FORBIDDEN: generic listing, "include", "such as".',
+      'Evaluating': 'Focus on making judgments with justification. Use verbs like evaluate, justify, critique, assess. Answer type: evaluation. FORBIDDEN: generic listing, "include", "such as". MUST include a verdict.',
+      'Creating': 'Focus on producing new work. Use verbs like design, create, compose, formulate. Answer type: design. FORBIDDEN: generic listing. MUST produce tangible output.'
     };
 
     const difficultyInstructions = {
