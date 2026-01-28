@@ -6,13 +6,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Users, Shield } from 'lucide-react';
+import { Users, RefreshCw } from 'lucide-react';
 
 interface UserWithRole {
   id: string;
   email: string;
+  full_name: string;
   created_at: string;
-  role: 'admin' | 'teacher' | 'validator' | 'student' | null;
+  role: 'admin' | 'teacher' | null;
 }
 
 export default function UserManagement() {
@@ -26,36 +27,43 @@ export default function UserManagement() {
 
   const fetchUsers = async () => {
     try {
-      // Fetch all users from auth
-      const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
-      if (authError) throw authError;
+      setLoading(true);
+      
+      // Fetch profiles (all users who have signed up)
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, email, full_name, created_at')
+        .order('created_at', { ascending: false });
 
-      // Fetch roles for each user
-      const usersWithRoles = await Promise.all(
-        authData.users.map(async (user) => {
-          const { data: roleData } = await supabase
-            .from('user_roles')
-            .select('role')
-            .eq('user_id', user.id)
-            .order('role', { ascending: true })
-            .limit(1)
-            .single();
+      if (profilesError) throw profilesError;
 
-          return {
-            id: user.id,
-            email: user.email || '',
-            created_at: user.created_at,
-            role: roleData?.role || null
-          };
-        })
-      );
+      // Fetch all user roles
+      const { data: roles, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('user_id, role');
+
+      if (rolesError) throw rolesError;
+
+      // Map roles to users
+      const roleMap = new Map<string, 'admin' | 'teacher'>();
+      roles?.forEach(r => {
+        roleMap.set(r.user_id, r.role);
+      });
+
+      const usersWithRoles: UserWithRole[] = (profiles || []).map(profile => ({
+        id: profile.id,
+        email: profile.email,
+        full_name: profile.full_name || '',
+        created_at: profile.created_at,
+        role: roleMap.get(profile.id) || null
+      }));
 
       setUsers(usersWithRoles);
     } catch (error) {
       console.error('Error fetching users:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load users',
+        description: 'Failed to load users. Make sure you have admin permissions.',
         variant: 'destructive',
       });
     } finally {
@@ -68,12 +76,14 @@ export default function UserManagement() {
       // Delete existing roles for this user
       await supabase.from('user_roles').delete().eq('user_id', userId);
 
-      // Insert new role - cast newRole to the proper enum type (only admin and teacher are valid)
-      const { error } = await supabase
-        .from('user_roles')
-        .insert([{ user_id: userId, role: newRole as 'admin' | 'teacher' }]);
+      // Only insert if a valid role is selected
+      if (newRole === 'admin' || newRole === 'teacher') {
+        const { error } = await supabase
+          .from('user_roles')
+          .insert([{ user_id: userId, role: newRole }]);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       toast({
         title: 'Success',
@@ -102,58 +112,69 @@ export default function UserManagement() {
   return (
     <div className="container mx-auto py-8 px-4">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <Users className="h-6 w-6" />
             User Management
           </CardTitle>
+          <Button variant="outline" onClick={fetchUsers} size="sm">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Registered</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
-                    {user.role ? (
-                      <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                        {user.role}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">No Role</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {new Date(user.created_at).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      value={user.role || ''}
-                      onValueChange={(value) => updateUserRole(user.id, value)}
-                    >
-                      <SelectTrigger className="w-32">
-                        <SelectValue placeholder="Set role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="admin">Admin</SelectItem>
-                        <SelectItem value="teacher">Teacher</SelectItem>
-                        <SelectItem value="validator">Validator</SelectItem>
-                        <SelectItem value="student">Student</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
+          {users.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No users found. Users will appear here after they sign up.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Registered</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {users.map((user) => (
+                  <TableRow key={user.id}>
+                    <TableCell className="font-medium">{user.email}</TableCell>
+                    <TableCell>{user.full_name || '—'}</TableCell>
+                    <TableCell>
+                      {user.role ? (
+                        <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                          {user.role}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">No Role</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {new Date(user.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={user.role || 'none'}
+                        onValueChange={(value) => updateUserRole(user.id, value)}
+                      >
+                        <SelectTrigger className="w-32">
+                          <SelectValue placeholder="Set role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Role</SelectItem>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="teacher">Teacher</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

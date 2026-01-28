@@ -30,6 +30,7 @@ export interface TOSConfig {
 }
 
 export interface TOSData extends TOSConfig {
+  id?: string // Database ID if saved
   distribution: {
     [topicName: string]: {
       hours: number

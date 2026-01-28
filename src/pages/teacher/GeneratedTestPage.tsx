@@ -9,13 +9,15 @@ import { GeneratedTests } from "@/services/db/generatedTests";
 import { useToast } from "@/hooks/use-toast";
 import { usePDFExport } from "@/hooks/usePDFExport";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTestAutoRepair } from "@/hooks/useTestAutoRepair";
+import { ExamPrintTemplate } from "@/components/print/ExamPrintTemplate";
 
 interface TestItem {
   question_text?: string;
   question?: string;
   question_type?: string;
   type?: string;
-  choices?: string[];
+  choices?: Record<string, string> | string[];
   options?: string[];
   correct_answer?: string | number;
   correctAnswer?: string | number;
@@ -27,37 +29,50 @@ interface TestItem {
 
 interface GroupedQuestions {
   mcq: TestItem[];
-  true_false: TestItem[];
-  short_answer: TestItem[];
+  secondary: TestItem[];
   essay: TestItem[];
-  other: TestItem[];
+  secondaryType: 'true_false' | 'short_answer' | null;
 }
 
 function groupQuestionsByType(items: TestItem[]): GroupedQuestions {
-  const groups: GroupedQuestions = {
-    mcq: [],
-    true_false: [],
-    short_answer: [],
-    essay: [],
-    other: []
-  };
+  const mcq: TestItem[] = [];
+  const trueFalse: TestItem[] = [];
+  const shortAnswer: TestItem[] = [];
+  const essay: TestItem[] = [];
 
   for (const item of items) {
     const type = (item.question_type || item.type || '').toLowerCase();
     if (type === 'mcq' || type === 'multiple-choice' || type === 'multiple_choice') {
-      groups.mcq.push(item);
+      mcq.push(item);
     } else if (type === 'true_false' || type === 'true-false' || type === 'truefalse') {
-      groups.true_false.push(item);
+      trueFalse.push(item);
     } else if (type === 'short_answer' || type === 'fill-blank' || type === 'fill_blank' || type === 'identification') {
-      groups.short_answer.push(item);
+      shortAnswer.push(item);
     } else if (type === 'essay') {
-      groups.essay.push(item);
-    } else {
-      groups.other.push(item);
+      essay.push(item);
     }
   }
 
-  return groups;
+  let secondaryType: 'true_false' | 'short_answer' | null = null;
+  let secondary: TestItem[] = [];
+  
+  if (trueFalse.length > 0 && shortAnswer.length === 0) {
+    secondaryType = 'true_false';
+    secondary = trueFalse;
+  } else if (shortAnswer.length > 0 && trueFalse.length === 0) {
+    secondaryType = 'short_answer';
+    secondary = shortAnswer;
+  } else if (trueFalse.length > 0 && shortAnswer.length > 0) {
+    if (trueFalse.length >= shortAnswer.length) {
+      secondaryType = 'true_false';
+      secondary = trueFalse;
+    } else {
+      secondaryType = 'short_answer';
+      secondary = shortAnswer;
+    }
+  }
+
+  return { mcq, secondary, essay, secondaryType };
 }
 
 export default function GeneratedTestPage() {
@@ -68,6 +83,7 @@ export default function GeneratedTestPage() {
   const [test, setTest] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showAnswerKey, setShowAnswerKey] = useState(false);
+  const { checkAndRepair, isRepairing } = useTestAutoRepair(testId);
 
   useEffect(() => {
     if (testId) {
@@ -78,7 +94,12 @@ export default function GeneratedTestPage() {
   const fetchTest = async () => {
     try {
       setLoading(true);
-      const data = await GeneratedTests.getById(testId!);
+      let data = await GeneratedTests.getById(testId!);
+      
+      if (data) {
+        data = await checkAndRepair(data);
+      }
+      
       setTest(data);
     } catch (error) {
       console.error("Error fetching test:", error);
@@ -116,10 +137,18 @@ export default function GeneratedTestPage() {
     }
   };
 
-  if (loading) {
+  // Fixed: Navigate back to my-tests instead of non-existent /teacher/tests
+  const handleBack = () => {
+    navigate("/teacher/my-tests");
+  };
+
+  if (loading || isRepairing) {
     return (
       <div className="container mx-auto py-8 space-y-6">
         <Skeleton className="h-12 w-full" />
+        <div className="text-center text-muted-foreground">
+          {isRepairing ? 'Repairing incomplete test...' : 'Loading test...'}
+        </div>
         <Skeleton className="h-64 w-full" />
         <Skeleton className="h-96 w-full" />
       </div>
@@ -133,9 +162,9 @@ export default function GeneratedTestPage() {
           <CardContent className="pt-6">
             <p className="text-center text-muted-foreground">Test not found</p>
             <div className="flex justify-center mt-4">
-              <Button onClick={() => navigate("/teacher/tests")}>
+              <Button onClick={handleBack}>
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Tests
+                Back to My Tests
               </Button>
             </div>
           </CardContent>
@@ -148,20 +177,36 @@ export default function GeneratedTestPage() {
   const totalPoints = items.reduce((sum, item) => sum + (item.points || 1), 0);
   const groupedQuestions = groupQuestionsByType(items);
 
-  // Calculate starting numbers for each section
   const mcqStart = 1;
-  const tfStart = mcqStart + groupedQuestions.mcq.length;
-  const saStart = tfStart + groupedQuestions.true_false.length;
-  const essayStart = saStart + groupedQuestions.short_answer.length;
-  const otherStart = essayStart + groupedQuestions.essay.length;
+  const secondaryStart = mcqStart + groupedQuestions.mcq.length;
+  const essayStart = secondaryStart + groupedQuestions.secondary.length;
+
+  const getSectionBTitle = () => {
+    if (groupedQuestions.secondaryType === 'true_false') {
+      return "Section B: True or False";
+    }
+    return "Section B: Fill in the Blank / Short Answer";
+  };
+
+  const getSectionBInstruction = () => {
+    if (groupedQuestions.secondaryType === 'true_false') {
+      return "Write TRUE if the statement is correct, FALSE if incorrect.";
+    }
+    return "Write the correct answer on the blank provided.";
+  };
 
   return (
-    <div className="container mx-auto py-8 space-y-6 print:py-4">
-      {/* Action Buttons - Hidden when printing */}
-      <div className="flex items-center justify-between print:hidden">
-        <Button variant="outline" onClick={() => navigate("/teacher/tests")}>
+    <>
+      {/* Print-only exam template - hidden on screen, shown only when printing */}
+      <ExamPrintTemplate test={test} showAnswerKey={showAnswerKey} />
+      
+      {/* Screen UI - hidden when printing */}
+      <div className="container mx-auto py-8 space-y-6 screen-only">
+      {/* Action Buttons */}
+      <div className="flex items-center justify-between">
+        <Button variant="outline" onClick={handleBack}>
           <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Tests
+          Back to My Tests
         </Button>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setShowAnswerKey(!showAnswerKey)}>
@@ -232,7 +277,7 @@ export default function GeneratedTestPage() {
 
           <Separator />
 
-          {/* Questions - Grouped by Type */}
+          {/* Questions - 3 Sections */}
           <div className="space-y-8">
             {groupedQuestions.mcq.length > 0 && (
               <QuestionSection
@@ -244,42 +289,22 @@ export default function GeneratedTestPage() {
               />
             )}
             
-            {groupedQuestions.true_false.length > 0 && (
+            {groupedQuestions.secondary.length > 0 && (
               <QuestionSection
-                title="Section B: True or False"
-                instruction="Write TRUE if the statement is correct, FALSE if incorrect."
-                items={groupedQuestions.true_false}
-                startNumber={tfStart}
-                showAnswer={showAnswerKey}
-              />
-            )}
-            
-            {groupedQuestions.short_answer.length > 0 && (
-              <QuestionSection
-                title="Section C: Fill in the Blank / Short Answer"
-                instruction="Write the correct answer on the blank provided."
-                items={groupedQuestions.short_answer}
-                startNumber={saStart}
+                title={getSectionBTitle()}
+                instruction={getSectionBInstruction()}
+                items={groupedQuestions.secondary}
+                startNumber={secondaryStart}
                 showAnswer={showAnswerKey}
               />
             )}
             
             {groupedQuestions.essay.length > 0 && (
               <QuestionSection
-                title="Section D: Essay Questions"
+                title="Section C: Essay Questions"
                 instruction="Answer the following questions in complete sentences. Provide clear and concise explanations."
                 items={groupedQuestions.essay}
                 startNumber={essayStart}
-                showAnswer={showAnswerKey}
-              />
-            )}
-            
-            {groupedQuestions.other.length > 0 && (
-              <QuestionSection
-                title="Section E: Other Questions"
-                instruction="Answer the following questions."
-                items={groupedQuestions.other}
-                startNumber={otherStart}
                 showAnswer={showAnswerKey}
               />
             )}
@@ -301,23 +326,22 @@ export default function GeneratedTestPage() {
               {groupedQuestions.mcq.length > 0 && (
                 <AnswerKeySection title="Multiple Choice" items={groupedQuestions.mcq} startNumber={mcqStart} />
               )}
-              {groupedQuestions.true_false.length > 0 && (
-                <AnswerKeySection title="True/False" items={groupedQuestions.true_false} startNumber={tfStart} />
-              )}
-              {groupedQuestions.short_answer.length > 0 && (
-                <AnswerKeySection title="Short Answer" items={groupedQuestions.short_answer} startNumber={saStart} />
+              {groupedQuestions.secondary.length > 0 && (
+                <AnswerKeySection 
+                  title={groupedQuestions.secondaryType === 'true_false' ? 'True/False' : 'Short Answer'} 
+                  items={groupedQuestions.secondary} 
+                  startNumber={secondaryStart} 
+                />
               )}
               {groupedQuestions.essay.length > 0 && (
                 <AnswerKeySection title="Essay" items={groupedQuestions.essay} startNumber={essayStart} />
-              )}
-              {groupedQuestions.other.length > 0 && (
-                <AnswerKeySection title="Other" items={groupedQuestions.other} startNumber={otherStart} />
               )}
             </div>
           </CardContent>
         </Card>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -372,6 +396,12 @@ function AnswerKeySection({ title, items, startNumber }: { title: string; items:
   );
 }
 
+function formatAnswer(item: TestItem): string {
+  const answer = item.correct_answer ?? item.correctAnswer;
+  if (answer === undefined || answer === null) return '—';
+  return String(answer);
+}
+
 function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: number; showAnswer: boolean }) {
   const getDifficultyColor = (difficulty?: string) => {
     switch (difficulty?.toLowerCase()) {
@@ -388,8 +418,29 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
 
   const questionText = item.question_text || item.question || '';
   const questionType = (item.question_type || item.type || '').toLowerCase();
-  const options = item.choices || item.options || [];
   const correctAnswer = item.correct_answer ?? item.correctAnswer;
+  
+  const getMCQOptions = (): { key: string; text: string }[] => {
+    const choices = item.choices || item.options;
+    if (!choices) return [];
+    
+    if (typeof choices === 'object' && !Array.isArray(choices)) {
+      return ['A', 'B', 'C', 'D']
+        .filter(key => choices[key])
+        .map(key => ({ key, text: choices[key] as string }));
+    }
+    
+    if (Array.isArray(choices)) {
+      return choices.map((text, idx) => ({
+        key: String.fromCharCode(65 + idx),
+        text: String(text)
+      }));
+    }
+    
+    return [];
+  };
+
+  const mcqOptions = getMCQOptions();
 
   return (
     <div className="border rounded-lg p-4 space-y-3 print:break-inside-avoid">
@@ -417,15 +468,16 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
 
       {/* Question Content based on type */}
       <div className="ml-8">
-        {(questionType === "mcq" || questionType === "multiple-choice" || questionType === "multiple_choice") && Array.isArray(options) && options.length > 0 && (
+        {/* MCQ with A, B, C, D options */}
+        {(questionType === "mcq" || questionType === "multiple-choice" || questionType === "multiple_choice") && mcqOptions.length > 0 && (
           <div className="space-y-2">
-            {options.map((option, idx) => {
-              const isCorrect = correctAnswer === idx || 
-                correctAnswer === String.fromCharCode(65 + idx) || 
-                correctAnswer === String.fromCharCode(97 + idx);
+            {mcqOptions.map((option) => {
+              const isCorrect = 
+                correctAnswer === option.key || 
+                correctAnswer === option.key.toLowerCase();
               return (
                 <div
-                  key={idx}
+                  key={option.key}
                   className={`flex items-start gap-2 p-2 rounded ${
                     showAnswer && isCorrect
                       ? "bg-green-50 border border-green-300"
@@ -433,97 +485,61 @@ function QuestionItem({ item, number, showAnswer }: { item: TestItem; number: nu
                   }`}
                 >
                   <span className="font-medium min-w-[24px]">
-                    {String.fromCharCode(65 + idx)}.
+                    {option.key}.
                   </span>
-                  <span className="text-sm">{option}</span>
+                  <span className="text-sm">{option.text}</span>
                 </div>
               );
             })}
           </div>
         )}
 
+        {/* True/False */}
         {(questionType === "true_false" || questionType === "true-false" || questionType === "truefalse") && (
-          <div className="space-y-2">
-            {["True", "False"].map((option, idx) => {
-              const normalizedAnswer = String(correctAnswer).toLowerCase();
-              const isCorrect =
-                (normalizedAnswer === "true" && option === "True") ||
-                (normalizedAnswer === "false" && option === "False") ||
-                correctAnswer === idx;
-              return (
-                <div
-                  key={idx}
-                  className={`flex items-center gap-2 p-2 rounded ${
-                    showAnswer && isCorrect
-                      ? "bg-green-50 border border-green-300"
-                      : "hover:bg-muted/50"
-                  }`}
-                >
-                  <input type="radio" disabled className="print:hidden" />
-                  <span className="text-sm">{option}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {(questionType === "short_answer" || questionType === "fill-blank" || questionType === "fill_blank" || questionType === "identification") && (
-          <div className="border-b-2 border-dashed border-muted-foreground/30 py-4">
-            {showAnswer && correctAnswer && (
-              <span className="text-primary font-medium">
-                Answer: {correctAnswer}
-              </span>
-            )}
-          </div>
-        )}
-
-        {questionType === "essay" && (
-          <div className="space-y-2">
-            <div className="border rounded p-4 min-h-[120px] bg-muted/10">
-              <p className="text-xs text-muted-foreground italic">
-                Write your answer here...
-              </p>
+          <div className="flex gap-4 mt-2">
+            <div className={`px-4 py-2 border rounded ${
+              showAnswer && String(correctAnswer).toLowerCase() === 'true' 
+                ? "bg-green-50 border-green-300" 
+                : ""
+            }`}>
+              TRUE
             </div>
+            <div className={`px-4 py-2 border rounded ${
+              showAnswer && String(correctAnswer).toLowerCase() === 'false' 
+                ? "bg-green-50 border-green-300" 
+                : ""
+            }`}>
+              FALSE
+            </div>
+          </div>
+        )}
+
+        {/* Short Answer / Fill in blank */}
+        {(questionType === "short_answer" || questionType === "fill-blank" || questionType === "fill_blank" || questionType === "identification") && (
+          <div className="mt-2">
+            <div className="border-b-2 border-dashed w-48 h-8"></div>
             {showAnswer && correctAnswer && (
-              <div className="text-sm text-muted-foreground bg-green-50 p-3 rounded">
-                <strong>Key Points/Sample Answer:</strong> {correctAnswer}
+              <div className="mt-2 text-green-600 text-sm">
+                Answer: {String(correctAnswer)}
               </div>
             )}
           </div>
         )}
 
-        {questionType === "matching" && (
-          <div className="text-sm text-muted-foreground italic">
-            Match the items from Column A to Column B
+        {/* Essay */}
+        {questionType === "essay" && (
+          <div className="mt-2 space-y-2">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="border-b border-dashed h-6"></div>
+            ))}
+            {showAnswer && correctAnswer && (
+              <div className="mt-2 text-green-600 text-sm bg-green-50 p-2 rounded">
+                Sample Answer: {String(correctAnswer)}
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* Metadata footer */}
-      {(item.topic || item.bloom_level) && (
-        <div className="flex gap-2 text-xs text-muted-foreground ml-8 print:hidden">
-          {item.topic && <span>Topic: {item.topic}</span>}
-          {item.bloom_level && <span>• Bloom: {item.bloom_level}</span>}
-        </div>
-      )}
     </div>
   );
 }
-
-function formatAnswer(item: TestItem): string {
-  const questionType = (item.question_type || item.type || '').toLowerCase();
-  const correctAnswer = item.correct_answer ?? item.correctAnswer;
-  
-  if ((questionType === "mcq" || questionType === "multiple-choice" || questionType === "multiple_choice") && typeof correctAnswer === "number") {
-    return String.fromCharCode(65 + correctAnswer);
-  }
-  if (questionType === "true_false" || questionType === "true-false" || questionType === "truefalse") {
-    const normalizedAnswer = String(correctAnswer).toLowerCase();
-    if (normalizedAnswer === "true" || correctAnswer === 0) return "True";
-    if (normalizedAnswer === "false" || correctAnswer === 1) return "False";
-  }
-  return String(correctAnswer || "N/A");
-}
-
-
-
