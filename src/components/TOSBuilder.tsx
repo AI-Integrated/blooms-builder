@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -21,7 +21,7 @@ import { buildTestConfigFromTOS } from "@/utils/testVersions";
 import { SufficiencyAnalysisPanel } from "@/components/analysis/SufficiencyAnalysisPanel";
 import { generateTestFromTOS, TOSCriteria } from "@/services/ai/testGenerationService";
 import { analyzeTOSSufficiency } from "@/services/analysis/sufficiencyAnalysis";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { 
   calculateCanonicalTOSMatrix, 
   validateTOSMatrix, 
@@ -57,6 +57,9 @@ interface TOSBuilderProps {
 
 export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const templateApplied = useRef(false);
+  
   const [topics, setTopics] = useState([{ topic: "", hours: 0 }]);
   const [tosMatrix, setTosMatrix] = useState<CanonicalTOSMatrix | null>(null);
   const [showMatrix, setShowMatrix] = useState(false);
@@ -93,7 +96,77 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     }
   });
 
-  const { register, handleSubmit, formState: { errors }, setValue, watch } = form;
+  const { register, handleSubmit, formState: { errors }, setValue, watch, reset } = form;
+
+  // Apply template data when navigated with state
+  useEffect(() => {
+    const state = location.state as { templateData?: any; isReusing?: boolean } | null;
+    
+    if (state?.templateData && state?.isReusing && !templateApplied.current) {
+      templateApplied.current = true;
+      const template = state.templateData;
+      
+      console.log("📋 Loading TOS template:", template);
+      
+      // Parse topics from template
+      let parsedTopics: { topic: string; hours: number }[] = [{ topic: "", hours: 0 }];
+      
+      if (template.topics) {
+        if (Array.isArray(template.topics)) {
+          // Topics is an array format
+          parsedTopics = template.topics.map((t: any) => ({
+            topic: t.topic || t.name || "",
+            hours: t.hours || 0
+          }));
+        } else if (typeof template.topics === 'object') {
+          // Topics might be an object with topic names as keys
+          parsedTopics = Object.entries(template.topics).map(([name, data]: [string, any]) => ({
+            topic: name,
+            hours: typeof data === 'object' ? (data.hours || 0) : 0
+          }));
+        }
+      } else if (template.distribution && typeof template.distribution === 'object') {
+        // Try to extract topics from distribution if topics array is missing
+        parsedTopics = Object.keys(template.distribution).map(topicName => ({
+          topic: topicName,
+          hours: template.distribution[topicName]?.hours || 3
+        }));
+      }
+      
+      // Ensure at least one topic
+      if (parsedTopics.length === 0) {
+        parsedTopics = [{ topic: "", hours: 0 }];
+      }
+      
+      // Update topics state
+      setTopics(parsedTopics);
+      
+      // Apply all form values
+      reset({
+        subject_no: template.subject_no || "",
+        course: template.course || "",
+        description: template.description || "",
+        year_section: template.year_section || "",
+        exam_period: template.exam_period || "",
+        school_year: template.school_year || "",
+        total_items: template.total_items || 50,
+        prepared_by: template.prepared_by || "",
+        noted_by: template.noted_by || "",
+        topics: parsedTopics
+      });
+      
+      console.log("✅ Template applied successfully:", {
+        subject_no: template.subject_no,
+        course: template.course,
+        totalItems: template.total_items,
+        topicsCount: parsedTopics.length
+      });
+      
+      toast.success("Template Loaded", {
+        description: `Loaded "${template.subject_no || template.course}" template with ${parsedTopics.length} topic(s). Update the details for your new exam.`,
+      });
+    }
+  }, [location.state, reset]);
 
   const watchedTotalItems = watch("total_items");
 

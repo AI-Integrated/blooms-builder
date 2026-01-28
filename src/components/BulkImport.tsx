@@ -69,11 +69,6 @@ export default function BulkImport({
   const [selectedTopic, setSelectedTopic] = useState<string>('General');
   const [classificationResults, setClassificationResults] = useState<any[]>([]);
   const [showClassificationDetails, setShowClassificationDetails] = useState(false);
-  const [bulkMetadata, setBulkMetadata] = useState({
-    subject: '',
-    grade_level: '',
-    term: '',
-  });
 
   const { batchClassify, buildTaxonomyMatrix } = useTaxonomyClassification({
     useMLClassifier: true,
@@ -242,9 +237,9 @@ export default function BulkImport({
         created_by: 'teacher',
         approved: false,
         needs_review: true,
-        subject: bulkMetadata.subject || undefined,
-        grade_level: bulkMetadata.grade_level || undefined,
-        term: bulkMetadata.term || undefined,
+        subject: undefined,
+        grade_level: undefined,
+        term: undefined,
       }));
 
       setProgress(50);
@@ -448,9 +443,9 @@ export default function BulkImport({
         row.KnowledgeDimension ||
         row.knowledge_dimension ||
         row['Knowledge Dimension'],
-      subject: row.Subject || row.subject || bulkMetadata.subject || undefined,
-      grade_level: row['Grade Level'] || row.grade_level || bulkMetadata.grade_level || undefined,
-      term: row.Term || row.term || bulkMetadata.term || undefined,
+      subject: row.Subject || row.subject || undefined,
+      grade_level: row['Grade Level'] || row.grade_level || undefined,
+      term: row.Term || row.term || undefined,
       tags: row.Tags ? (Array.isArray(row.Tags) ? row.Tags : row.Tags.split(',').map((t: string) => t.trim())) : undefined,
     };
   };
@@ -731,64 +726,6 @@ export default function BulkImport({
             <Download className="h-4 w-4 mr-2" />
             Download Template
           </Button>
-        </CardContent>
-      </Card>
-
-      {/* Bulk Metadata */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5" />
-            Bulk Metadata (Optional)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">
-            Set default metadata that will be applied to all imported questions unless overridden in the CSV.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <label htmlFor="bulk-subject" className="text-sm font-medium">
-                Subject
-              </label>
-              <input
-                id="bulk-subject"
-                type="text"
-                placeholder="e.g., Mathematics"
-                value={bulkMetadata.subject}
-                onChange={(e) => setBulkMetadata({ ...bulkMetadata, subject: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label htmlFor="bulk-grade" className="text-sm font-medium">
-                Grade Level
-              </label>
-              <input
-                id="bulk-grade"
-                type="text"
-                placeholder="e.g., Grade 10"
-                value={bulkMetadata.grade_level}
-                onChange={(e) => setBulkMetadata({ ...bulkMetadata, grade_level: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label htmlFor="bulk-term" className="text-sm font-medium">
-                Term
-              </label>
-              <input
-                id="bulk-term"
-                type="text"
-                placeholder="e.g., First Quarter"
-                value={bulkMetadata.term}
-                onChange={(e) => setBulkMetadata({ ...bulkMetadata, term: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md"
-              />
-            </div>
-          </div>
         </CardContent>
       </Card>
 
