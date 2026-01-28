@@ -194,40 +194,122 @@ export function TestGenerator({ tosData, onTestGenerated, onCancel }: TestGenera
 
   const generateQuestionsFromDatabase = async (): Promise<string> => {
     try {
-      const { generateTestFromTOS } = await import('@/services/ai/testGenerationService')
+      const { supabase } = await import('@/integrations/supabase/client')
+      const { data: { user } } = await supabase.auth.getUser()
       
-      // Build TOS criteria from distribution
-      const tosCriteria: any[] = []
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+
+      // Build distributions in the format expected by the edge function
+      const distributions: any[] = []
       Object.entries(tosData.distribution).forEach(([topicName, topicData]) => {
+        const counts: any = {
+          remembering: 0,
+          understanding: 0,
+          applying: 0,
+          analyzing: 0,
+          evaluating: 0,
+          creating: 0,
+          difficulty: { easy: 0, average: 0, difficult: 0 }
+        }
+        
         Object.entries(topicData).forEach(([bloomLevel, itemNumbers]) => {
           if (bloomLevel === 'hours' || bloomLevel === 'total' || !Array.isArray(itemNumbers)) return
           
+          const normalizedBloom = bloomLevel.toLowerCase()
+          if (counts[normalizedBloom] !== undefined) {
+            counts[normalizedBloom] = itemNumbers.length
+          }
+          
+          // Distribute difficulty based on bloom level
           const difficulty = getDifficultyFromBloom(bloomLevel)
-          tosCriteria.push({
-            topic: topicName,
-            bloom_level: bloomLevel.charAt(0).toUpperCase() + bloomLevel.slice(1),
-            knowledge_dimension: 'conceptual',
-            difficulty: difficulty.toLowerCase(),
-            count: itemNumbers.length
-          })
+          if (difficulty === 'Easy') counts.difficulty.easy += itemNumbers.length
+          else if (difficulty === 'Average') counts.difficulty.average += itemNumbers.length
+          else counts.difficulty.difficult += itemNumbers.length
         })
+        
+        distributions.push({ topic: topicName, counts })
       })
 
-      // Generate test using intelligent selection
-      const generatedTest = await generateTestFromTOS(
-        tosCriteria,
-        `${tosData.description} - ${tosData.examPeriod}`,
-        {
-          subject: tosData.course,
-          exam_period: tosData.examPeriod,
-          school_year: tosData.schoolYear,
-          year_section: tosData.yearSection,
-          course: tosData.course,
-          tos_id: null
-        }
-      )
+      console.log('🎯 Calling edge function with full TOS distribution:', {
+        total_items: tosData.totalItems,
+        topics: distributions.length,
+        distributions
+      })
 
-      // Return the test ID for navigation
+      // Call the edge function with the COMPLETE TOS distribution in ONE call
+      const { data, error } = await supabase.functions.invoke('generate-questions-from-tos', {
+        body: {
+          tos_id: tosData.id || 'direct-generation',
+          total_items: tosData.totalItems,
+          distributions,
+          allow_unapproved: false,
+          prefer_existing: true
+        }
+      })
+
+      if (error) {
+        console.error('Edge function error:', error)
+        throw new Error('Failed to generate questions: ' + error.message)
+      }
+
+      if (!data?.questions || data.questions.length === 0) {
+        throw new Error('No questions were generated')
+      }
+
+      console.log('✅ Edge function returned:', {
+        total: data.questions.length,
+        from_bank: data.statistics?.from_bank || 0,
+        ai_generated: data.statistics?.ai_generated || 0
+      })
+
+      // ✅ ENFORCEMENT: Never save an incomplete test.
+      if (data.questions.length !== tosData.totalItems) {
+        throw new Error(`Generated ${data.questions.length}/${tosData.totalItems} questions. Please retry generation.`)
+      }
+
+      // Number questions sequentially
+      const numberedQuestions = data.questions.map((q: any, idx: number) => ({
+        ...q,
+        question_number: idx + 1
+      }))
+
+      // Generate answer key
+      const answerKey = numberedQuestions.map((q: any) => ({
+        question_number: q.question_number,
+        question_id: q.id,
+        correct_answer: q.correct_answer,
+        points: 1
+      }))
+
+      // Save the complete test to database
+      const testData = {
+        title: `${tosData.description} - ${tosData.examPeriod}`,
+        subject: tosData.course,
+        course: tosData.course,
+        year_section: tosData.yearSection,
+        exam_period: tosData.examPeriod,
+        school_year: tosData.schoolYear,
+        items: numberedQuestions,
+        answer_key: answerKey,
+        tos_id: tosData.id || null,
+        points_per_question: 1,
+        created_by: user.id
+      }
+
+      const { data: generatedTest, error: insertError } = await supabase
+        .from('generated_tests')
+        .insert(testData)
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error('Failed to save test:', insertError)
+        throw new Error('Failed to save generated test: ' + insertError.message)
+      }
+
+      console.log('✅ Test saved with', numberedQuestions.length, 'questions')
       return generatedTest.id
     } catch (error) {
       console.error('Error generating test from TOS:', error)

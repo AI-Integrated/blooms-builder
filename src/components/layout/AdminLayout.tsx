@@ -5,20 +5,19 @@ import {
   LayoutDashboard, 
   Users, 
   Database, 
-  CheckCircle, 
   BarChart3,
   Settings,
   LogOut,
   ChevronLeft,
   ChevronRight,
-  FileText,
   Brain,
-  Upload
+  Upload,
+  Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
 
+// Cleaned up admin menu - with AI Test Generator moved from Teacher
 const adminMenuItems = [
   { 
     title: "Dashboard", 
@@ -45,34 +44,16 @@ const adminMenuItems = [
     description: "Import questions" 
   },
   { 
-    title: "Question Approvals", 
-    href: "/admin/approvals", 
-    icon: CheckCircle,
-    description: "Review AI questions" 
-  },
-  { 
-    title: "AI Generation Logs", 
-    href: "/admin/ai-logs", 
-    icon: FileText,
-    description: "Monitor AI activity" 
+    title: "AI Test Generator", 
+    href: "/admin/generate-test", 
+    icon: Sparkles,
+    description: "Generate tests" 
   },
   { 
     title: "System Analytics", 
     href: "/admin/analytics", 
     icon: BarChart3,
     description: "Performance metrics" 
-  },
-  { 
-    title: "Quality Assurance", 
-    href: "/admin/quality", 
-    icon: CheckCircle,
-    description: "ISO 25010 metrics" 
-  },
-  { 
-    title: "Test Assembly", 
-    href: "/admin/test-assembly", 
-    icon: FileText,
-    description: "Advanced test builder" 
   },
 ];
 
@@ -102,10 +83,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex">
-      {/* Sidebar */}
+      {/* Sidebar - Fixed position */}
       <div 
         className={cn(
-          "flex flex-col h-screen bg-slate-900 border-r border-slate-800 transition-all duration-300",
+          "fixed top-0 left-0 flex flex-col h-screen bg-slate-900 border-r border-slate-800 transition-all duration-300 z-50",
           collapsed ? "w-16" : "w-64"
         )}
       >
@@ -206,7 +187,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 <Users className="w-4 h-4 text-white" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="font-medium text-sm text-slate-100">{user?.email}</div>
+                <div className="font-medium text-sm text-slate-100 truncate">{user?.email}</div>
                 <div className="text-xs text-slate-400">Administrator</div>
               </div>
             </div>
@@ -214,8 +195,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         )}
       </div>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      {/* Main Content - with margin to account for fixed sidebar */}
+      <main className={cn(
+        "flex-1 overflow-auto transition-all duration-300",
+        collapsed ? "ml-16" : "ml-64"
+      )}>
         {children}
       </main>
     </div>

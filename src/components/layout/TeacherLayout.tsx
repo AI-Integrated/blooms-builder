@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
 
 const teacherMenuItems = [
   { 
@@ -33,12 +32,6 @@ const teacherMenuItems = [
     description: "Create specifications" 
   },
   { 
-    title: "AI Test Generator", 
-    href: "/teacher/generate-test", 
-    icon: Sparkles,
-    description: "Generate tests" 
-  },
-  { 
     title: "My Tests", 
     href: "/teacher/my-tests", 
     icon: BookOpen,
@@ -51,16 +44,10 @@ const teacherMenuItems = [
     description: "Professional exports" 
   },
   { 
-    title: "Rubrics", 
-    href: "/teacher/rubrics", 
-    icon: Target,
-    description: "Scoring rubrics" 
-  },
-  { 
-    title: "Test History", 
-    href: "/teacher/history", 
+    title: "TOS History", 
+    href: "/teacher/tos-history", 
     icon: Clock,
-    description: "Past questionnaires" 
+    description: "Saved specifications" 
   },
   { 
     title: "Reports", 
@@ -95,11 +82,12 @@ export function TeacherLayout({ children }: TeacherLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
+    <div className="min-h-screen bg-background flex" data-sidebar-provider="true">
+      {/* Sidebar - Fixed position - Hidden when printing */}
       <div 
+        data-sidebar="true"
         className={cn(
-          "flex flex-col h-screen bg-card border-r border-border transition-all duration-300",
+          "fixed top-0 left-0 flex flex-col h-screen bg-card border-r border-border transition-all duration-300 z-50 screen-only",
           collapsed ? "w-16" : "w-64"
         )}
       >
@@ -200,7 +188,7 @@ export function TeacherLayout({ children }: TeacherLayoutProps) {
                 <User className="w-4 h-4 text-white" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="font-medium text-sm">{user?.email}</div>
+                <div className="font-medium text-sm truncate">{user?.email}</div>
                 <div className="text-xs text-muted-foreground">Teacher</div>
               </div>
             </div>
@@ -208,8 +196,11 @@ export function TeacherLayout({ children }: TeacherLayoutProps) {
         )}
       </div>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      {/* Main Content - with margin to account for fixed sidebar */}
+      <main className={cn(
+        "flex-1 overflow-auto transition-all duration-300 print:ml-0",
+        collapsed ? "ml-16" : "ml-64"
+      )}>
         {children}
       </main>
     </div>
