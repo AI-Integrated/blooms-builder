@@ -8,8 +8,15 @@ import { addWatermarkToPDF, generateWatermarkCode, logSecurityEvent } from '@/se
 export const usePDFExport = () => {
   const uploadToStorage = useCallback(async (blob: Blob, filename: string, folder: string) => {
     try {
+      // Get current user for owner-based storage path
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User must be authenticated to upload files');
+      }
+
       const timestamp = new Date().toISOString().slice(0, 10);
-      const path = `${folder}/${timestamp}/${filename}`;
+      // Use user ID as first folder segment for owner-based RLS
+      const path = `${user.id}/${folder}/${timestamp}/${filename}`;
 
       const { error: uploadError } = await supabase.storage
         .from('exports')
@@ -20,12 +27,15 @@ export const usePDFExport = () => {
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
+      // Use signed URL instead of public URL for secure access
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from('exports')
-        .getPublicUrl(path);
+        .createSignedUrl(path, 3600); // 1 hour expiry
+
+      if (signedUrlError) throw signedUrlError;
 
       return {
-        storageUrl: urlData.publicUrl,
+        storageUrl: signedUrlData.signedUrl,
         storagePath: path
       };
     } catch (error) {
@@ -142,29 +152,57 @@ export const usePDFExport = () => {
       
       let yPosition = margin;
 
-      // Add title
-      pdf.setFontSize(16);
-      pdf.setFont('helvetica', 'bold');
+      // Add title (Times New Roman, Bold, Centered)
+      pdf.setFontSize(14);
+      pdf.setFont('times', 'bold');
       pdf.text(testTitle, pageWidth / 2, yPosition, { align: 'center' });
-      
-      // Add version label if provided
-      if (versionLabel) {
-        pdf.setFontSize(12);
-        pdf.setFont('helvetica', 'normal');
-        pdf.text(`Version ${versionLabel}`, pageWidth / 2, yPosition + 7, { align: 'center' });
-      }
-      
-      yPosition += lineHeight * 2;
-
-      // Add student info section
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('Name: _______________________________', margin, yPosition);
-      pdf.text('Date: _______________', pageWidth - margin - 50, yPosition);
       yPosition += lineHeight;
-      pdf.text('Section: ____________________________', margin, yPosition);
-      pdf.text('Score: _____ / ' + questions.length, pageWidth - margin - 50, yPosition);
-      yPosition += lineHeight * 2;
+      
+      // Add metadata line (course, section, exam period, school year)
+      pdf.setFontSize(10);
+      pdf.setFont('times', 'normal');
+      const metaLine = [
+        versionLabel ? `Version ${versionLabel}` : '',
+        'Midterm Examination',
+        `S.Y. ${new Date().getFullYear()}-${new Date().getFullYear() + 1}`
+      ].filter(Boolean).join('     ');
+      pdf.text(metaLine, pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += lineHeight * 1.5;
+      
+      // Add horizontal line
+      pdf.setLineWidth(0.5);
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += lineHeight;
+
+      // Add student info section (two columns layout)
+      pdf.setFontSize(10);
+      pdf.setFont('times', 'bold');
+      const halfWidth = (pageWidth - margin * 2) / 2;
+      
+      // Row 1: Name and Date
+      pdf.text('Name:', margin, yPosition);
+      pdf.setFont('times', 'normal');
+      pdf.line(margin + 15, yPosition, margin + halfWidth - 10, yPosition);
+      
+      pdf.setFont('times', 'bold');
+      pdf.text('Date:', margin + halfWidth, yPosition);
+      pdf.setFont('times', 'normal');
+      pdf.line(margin + halfWidth + 12, yPosition, pageWidth - margin, yPosition);
+      yPosition += lineHeight;
+      
+      // Row 2: Section and Score
+      pdf.setFont('times', 'bold');
+      pdf.text('Section:', margin, yPosition);
+      pdf.setFont('times', 'normal');
+      pdf.line(margin + 18, yPosition, margin + halfWidth - 10, yPosition);
+      
+      pdf.setFont('times', 'bold');
+      pdf.text('Score:', margin + halfWidth, yPosition);
+      pdf.setFont('times', 'normal');
+      pdf.line(margin + halfWidth + 14, yPosition, pageWidth - margin - 20, yPosition);
+      pdf.setFont('times', 'bold');
+      pdf.text(`/ ${questions.length}`, pageWidth - margin - 18, yPosition);
+      yPosition += lineHeight * 1.5;
 
       // Group questions by type
       const grouped = {
@@ -242,44 +280,94 @@ export const usePDFExport = () => {
         }
       }
 
-      // Create answer key on new page
+      // Create answer key on new page - compact multi-column layout
       pdf.addPage();
       yPosition = margin;
       
-      pdf.setFontSize(16);
-      pdf.setFont('helvetica', 'bold');
+      // Answer Key header matching exam header style
+      pdf.setFontSize(14);
+      pdf.setFont('times', 'bold');
       pdf.text('Answer Key', pageWidth / 2, yPosition, { align: 'center' });
-      yPosition += lineHeight * 2;
-
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'normal');
+      yPosition += lineHeight;
       
+      // Add test title and version info
+      pdf.setFontSize(10);
+      pdf.setFont('times', 'normal');
+      pdf.text(testTitle + (versionLabel ? ` - Version ${versionLabel}` : ''), pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += lineHeight;
+      
+      // Add horizontal line
+      pdf.setLineWidth(0.3);
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += lineHeight * 1.5;
+
+      // Build answer key data
+      const answerKeyData: { num: number; answer: string }[] = [];
       questionNumber = 1;
       for (const section of [grouped.mcq, grouped.true_false, grouped.short_answer, grouped.essay, grouped.other]) {
         for (const question of section) {
-          if (yPosition > pageHeight - 20) {
-            pdf.addPage();
-            yPosition = margin;
-          }
-
           const correctAnswer = question.correct_answer ?? question.correctAnswer ?? '';
           const questionType = (question.question_type || question.type || '').toLowerCase();
           
           let answer = '';
-          if ((questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice') && typeof correctAnswer === 'number') {
-            answer = String.fromCharCode(65 + correctAnswer);
-          } else if (questionType === 'true_false' || questionType === 'true-false') {
-            answer = String(correctAnswer).toLowerCase() === 'true' ? 'True' : 'False';
+          if (questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice') {
+            if (typeof correctAnswer === 'number') {
+              answer = String.fromCharCode(65 + correctAnswer);
+            } else if (typeof correctAnswer === 'string' && /^[A-Da-d]$/.test(correctAnswer)) {
+              answer = correctAnswer.toUpperCase();
+            } else {
+              answer = String(correctAnswer).substring(0, 20);
+            }
+          } else if (questionType === 'true_false' || questionType === 'true-false' || questionType === 'truefalse') {
+            answer = String(correctAnswer).toLowerCase() === 'true' ? 'T' : 'F';
           } else if (correctAnswer) {
-            answer = String(correctAnswer).substring(0, 50) + (String(correctAnswer).length > 50 ? '...' : '');
+            answer = String(correctAnswer).substring(0, 20) + (String(correctAnswer).length > 20 ? '...' : '');
           } else {
-            answer = 'See rubric';
+            answer = 'Rubric';
           }
           
-          pdf.text(`${questionNumber}. ${answer}`, margin, yPosition);
-          yPosition += lineHeight;
+          answerKeyData.push({ num: questionNumber, answer });
           questionNumber++;
         }
+      }
+
+      // Render in multi-column grid layout (4 columns for compact display)
+      pdf.setFontSize(10);
+      pdf.setFont('times', 'normal');
+      
+      const columns = 4;
+      const columnWidth = (pageWidth - margin * 2) / columns;
+      const itemHeight = 5;
+      const itemsPerColumn = Math.ceil((pageHeight - yPosition - 30) / itemHeight);
+      const maxItemsPerPage = itemsPerColumn * columns;
+      
+      let currentItem = 0;
+      const startY = yPosition;
+      
+      while (currentItem < answerKeyData.length) {
+        // Check if we need a new page
+        if (currentItem > 0 && currentItem % maxItemsPerPage === 0) {
+          pdf.addPage();
+          yPosition = margin + lineHeight;
+        }
+        
+        const pageStartItem = Math.floor(currentItem / maxItemsPerPage) * maxItemsPerPage;
+        const itemInPage = currentItem - pageStartItem;
+        const col = Math.floor(itemInPage / itemsPerColumn);
+        const row = itemInPage % itemsPerColumn;
+        
+        const x = margin + col * columnWidth;
+        const y = (currentItem >= maxItemsPerPage ? margin + lineHeight : startY) + row * itemHeight;
+        
+        const item = answerKeyData[currentItem];
+        const numText = `${item.num}.`;
+        const answerText = item.answer;
+        
+        // Right-align the number and left-align answer
+        pdf.text(numText, x + 8, y, { align: 'right' });
+        pdf.text(answerText, x + 10, y);
+        
+        currentItem++;
       }
 
       // Add watermarks if version label and test ID are provided
@@ -366,15 +454,15 @@ function addSectionHeader(
     yPosition = margin;
   }
 
-  pdf.setFontSize(12);
-  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(11);
+  pdf.setFont('times', 'bold');
   pdf.text(title, margin, yPosition);
-  yPosition += 6;
+  yPosition += 5;
   
   pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'italic');
+  pdf.setFont('times', 'italic');
   pdf.text(instruction, margin, yPosition);
-  yPosition += 10;
+  yPosition += 8;
   
   return yPosition;
 }
@@ -400,30 +488,52 @@ function addQuestion(
   // Get question text - handle both field naming conventions
   const questionText = question.question_text || question.question || 'Question text not available';
   const questionType = (question.question_type || question.type || '').toLowerCase();
-  const options = question.choices || question.options || [];
+  const rawChoices = question.choices || question.options;
+  
+  // Normalize choices to array of { key, text } for consistent rendering
+  const getMCQOptions = (): { key: string; text: string }[] => {
+    if (!rawChoices) return [];
+    
+    // Handle object format: { A: "text", B: "text", ... }
+    if (typeof rawChoices === 'object' && !Array.isArray(rawChoices)) {
+      return ['A', 'B', 'C', 'D', 'E', 'F']
+        .filter(key => rawChoices[key])
+        .map(key => ({ key, text: String(rawChoices[key]) }));
+    }
+    
+    // Handle array format: ["option1", "option2", ...]
+    if (Array.isArray(rawChoices)) {
+      return rawChoices.map((text, idx) => ({
+        key: String.fromCharCode(65 + idx),
+        text: typeof text === 'string' ? text : String(text)
+      }));
+    }
+    
+    return [];
+  };
+  
+  const mcqOptions = getMCQOptions();
 
   // Question number and text
   pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'bold');
+  pdf.setFont('times', 'bold');
   pdf.text(`${number}.`, margin, yPosition);
   
-  pdf.setFont('helvetica', 'normal');
+  pdf.setFont('times', 'normal');
   const questionLines = pdf.splitTextToSize(questionText, pageWidth - margin * 2 - 10);
   pdf.text(questionLines, margin + 8, yPosition);
   yPosition += questionLines.length * lineHeight;
 
   // Add options for multiple choice
-  if ((questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice') && Array.isArray(options) && options.length > 0) {
+  if ((questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice') && mcqOptions.length > 0) {
     yPosition += 3;
-    options.forEach((option: string, optIndex: number) => {
+    mcqOptions.forEach((option) => {
       if (yPosition > pageHeight - 20) {
         pdf.addPage();
         yPosition = margin;
       }
       
-      const optionLetter = String.fromCharCode(65 + optIndex);
-      const optionText = typeof option === 'string' ? option : String(option);
-      const optionLines = pdf.splitTextToSize(`${optionLetter}. ${optionText}`, pageWidth - margin * 2 - 15);
+      const optionLines = pdf.splitTextToSize(`${option.key}. ${option.text}`, pageWidth - margin * 2 - 15);
       pdf.text(optionLines, margin + 15, yPosition);
       yPosition += optionLines.length * lineHeight;
     });

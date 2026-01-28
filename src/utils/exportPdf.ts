@@ -93,13 +93,21 @@ export class PDFExporter {
     filename: string, 
     bucket: string = 'exports'
   ): Promise<{ url: string; path: string }> {
+    // Get the current user to enforce owner-based path isolation
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      throw new Error('Authentication required for file upload');
+    }
+
     const timestamp = new Date().toISOString().slice(0, 10);
-    const path = `${timestamp}/${filename}`;
+    // Path MUST start with user_id to comply with RLS policies on exports bucket
+    const path = `${user.id}/${timestamp}/${filename}`;
 
     const { error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(path, blob, {
-        upsert: true,
+        upsert: false, // Prevent accidental overwrites
         contentType: 'application/pdf'
       });
 
@@ -107,12 +115,17 @@ export class PDFExporter {
       throw new Error(`Storage upload failed: ${uploadError.message}`);
     }
 
-    const { data: urlData } = supabase.storage
+    // Use signed URL for private bucket access instead of public URL
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
       .from(bucket)
-      .getPublicUrl(path);
+      .createSignedUrl(path, 3600); // 1 hour expiry
+
+    if (signedUrlError || !signedUrlData) {
+      throw new Error(`Failed to generate signed URL: ${signedUrlError?.message}`);
+    }
 
     return {
-      url: urlData.publicUrl,
+      url: signedUrlData.signedUrl,
       path
     };
   }

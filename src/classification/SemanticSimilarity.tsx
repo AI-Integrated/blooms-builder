@@ -1,0 +1,1 @@
+export { SemanticSimilarity } from '@/components/classification/SemanticSimilarity';

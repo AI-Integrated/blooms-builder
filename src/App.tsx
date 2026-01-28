@@ -22,10 +22,10 @@ import MyTests from "./pages/teacher/MyTests";
 import TestPreview from "./pages/teacher/TestPreview";
 import GeneratedTestPage from "./pages/teacher/GeneratedTestPage";
 import TeacherHistory from "./pages/teacher/History";
+import TOSHistory from "./pages/teacher/TOSHistory";
 import TeacherReports from "./pages/teacher/Reports";
 import TeacherSettings from "./pages/teacher/Settings";
 import ProfessionalExport from "./pages/ProfessionalExport";
-import Rubrics from "./pages/Rubrics";
 import Tests from "./pages/Tests";
 import Collaboration from "./pages/Collaboration";
 import Quality from "./pages/Quality";
@@ -66,6 +66,7 @@ const App = () => {
                         <Route path="bulk-import" element={<BulkImportPage />} />
                         <Route path="users" element={<UserManagement />} />
                         <Route path="analytics" element={<AdminAnalytics />} />
+                        <Route path="generate-test" element={<IntelligentTestGenerator />} />
                         <Route path="ai-logs" element={<AILogs />} />
                         <Route path="quality" element={<Quality />} />
                         <Route path="test-assembly" element={<TestAssembly />} />
@@ -94,9 +95,10 @@ const App = () => {
                         <Route path="generated-test/:testId" element={<GeneratedTestPage />} />
                         <Route path="preview-test/:testId" element={<GeneratedTestPage />} />
                         <Route path="history" element={<TeacherHistory />} />
+                        <Route path="tos-history" element={<TOSHistory />} />
+                        <Route path="tos/:tosId" element={<TOSPage />} />
                         <Route path="reports" element={<TeacherReports />} />
                         <Route path="export" element={<ProfessionalExport />} />
-                        <Route path="rubrics" element={<Rubrics />} />
                         <Route path="tests" element={<Tests />} />
                         <Route path="collaboration" element={<Collaboration />} />
                         <Route path="settings" element={<TeacherSettings />} />

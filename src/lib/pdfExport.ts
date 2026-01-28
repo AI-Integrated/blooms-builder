@@ -80,27 +80,39 @@ export async function exportToPDF(
 }
 
 /**
- * Upload PDF to Supabase Storage
+ * Upload PDF to Supabase Storage with owner-based path
  */
 export async function uploadPDFToStorage(
   blob: Blob, 
   path: string
 ): Promise<string> {
   try {
+    // Get current user for owner-based storage path
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('User must be authenticated to upload files');
+    }
+
+    // Prepend user ID to path for owner-based RLS
+    const securePath = `${user.id}/${path}`;
+
     const { data, error } = await supabase.storage
       .from('exports')
-      .upload(path, blob, {
+      .upload(securePath, blob, {
         upsert: true,
         contentType: 'application/pdf'
       });
 
     if (error) throw error;
 
-    const { data: publicUrl } = supabase.storage
+    // Use signed URL instead of public URL for secure access
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
       .from('exports')
-      .getPublicUrl(path);
+      .createSignedUrl(securePath, 3600); // 1 hour expiry
 
-    return publicUrl.publicUrl;
+    if (signedUrlError) throw signedUrlError;
+
+    return signedUrlData.signedUrl;
   } catch (error) {
     console.error('Storage upload error:', error);
     throw new Error('Failed to upload PDF to storage');
