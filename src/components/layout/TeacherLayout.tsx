@@ -38,12 +38,6 @@ const teacherMenuItems = [
     description: "View generated tests" 
   },
   { 
-    title: "Export & Print", 
-    href: "/teacher/export", 
-    icon: FileText,
-    description: "Professional exports" 
-  },
-  { 
     title: "TOS History", 
     href: "/teacher/tos-history", 
     icon: Clock,
