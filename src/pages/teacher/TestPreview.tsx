@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Printer, Download, Key } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { usePDFExport } from '@/hooks/usePDFExport';
+import { ExamPrintView } from '@/components/print/ExamPrintView';
 
 interface TestItem {
   id?: string | number;
@@ -154,24 +155,26 @@ export default function TestPreview() {
   };
 
   return (
-    <div className="container mx-auto py-8 px-4 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <Button variant="outline" onClick={() => navigate('/teacher/my-tests')}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Tests
-        </Button>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handlePrint}>
-            <Printer className="h-4 w-4 mr-2" />
-            Print
+    <>
+      {/* Screen View */}
+      <div className="container mx-auto py-4 sm:py-8 px-4 space-y-6 screen-only">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <Button variant="outline" onClick={() => navigate('/teacher/my-tests')} size="sm" className="sm:size-default">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Tests
           </Button>
-          <Button variant="outline" onClick={handleExport}>
-            <Download className="h-4 w-4 mr-2" />
-            Export PDF
-          </Button>
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button onClick={handlePrint} className="flex-1 sm:flex-none">
+              <Printer className="h-4 w-4 mr-2" />
+              Print
+            </Button>
+            <Button variant="outline" onClick={handleExport} className="flex-1 sm:flex-none">
+              <Download className="h-4 w-4 mr-2" />
+              Export PDF
+            </Button>
+          </div>
         </div>
-      </div>
 
       {/* Test Header */}
       <Card>
@@ -339,6 +342,10 @@ export default function TestPreview() {
           </CardContent>
         </Card>
       )}
-    </div>
+      </div>
+
+      {/* Print View - Hidden on screen, shown when printing */}
+      <ExamPrintView test={test} showAnswerKey={true} />
+    </>
   );
 }
