@@ -1,10 +1,53 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+/**
+ * Input Validation Schema - Prevents prompt injection and resource exhaustion
+ */
+const RequestSchema = z.object({
+  topic: z.string()
+    .min(3, { message: "Topic must be at least 3 characters" })
+    .max(200, { message: "Topic must not exceed 200 characters" })
+    .transform(val => sanitizeInput(val)),
+  bloom_level: z.enum(
+    ['Remembering', 'Understanding', 'Applying', 'Analyzing', 'Evaluating', 'Creating'],
+    { message: "Invalid bloom_level. Must be one of: Remembering, Understanding, Applying, Analyzing, Evaluating, Creating" }
+  ),
+  knowledge_dimension: z.enum(
+    ['factual', 'conceptual', 'procedural', 'metacognitive'],
+    { message: "Invalid knowledge_dimension. Must be one of: factual, conceptual, procedural, metacognitive" }
+  ),
+  difficulty: z.enum(
+    ['Easy', 'Average', 'Difficult'],
+    { message: "Invalid difficulty. Must be one of: Easy, Average, Difficult" }
+  ).default('Average'),
+  count: z.number()
+    .int({ message: "Count must be an integer" })
+    .min(1, { message: "Count must be at least 1" })
+    .max(20, { message: "Count must not exceed 20" })
+    .default(1),
+  question_type: z.enum(['mcq', 'essay']).default('mcq'),
+  intents: z.array(z.any()).optional(),
+  pipeline_mode: z.string().optional(),
+  registry_snapshot: z.any().optional()
+});
+
+/**
+ * Sanitize input to remove potential prompt injection characters
+ */
+function sanitizeInput(input: string): string {
+  return input
+    .replace(/[\r\n]+/g, ' ')  // Remove newlines
+    .replace(/[`'"\\]/g, '')    // Remove quotes and backticks
+    .replace(/\s{2,}/g, ' ')    // Collapse multiple spaces
+    .trim();
+}
 
 /**
  * HIGHER ORDER BLOOM LEVELS - These FORBID generic listing
@@ -481,18 +524,36 @@ serve(async (req) => {
   }
 
   try {
+    const rawBody = await req.json();
+    
+    // Validate input with Zod
+    const validationResult = RequestSchema.safeParse(rawBody);
+    
+    if (!validationResult.success) {
+      const errors = validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`);
+      console.error('Validation failed:', errors);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid request parameters', 
+          details: errors 
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
     const { 
       topic, 
       bloom_level, 
       knowledge_dimension,
-      difficulty = 'Average',
-      count = 1,
-      question_type = 'mcq',
+      difficulty,
+      count,
+      question_type,
       intents,
       pipeline_mode,
-      registry_snapshot // NEW: Receive registry state
-    } = await req.json();
+      registry_snapshot
+    } = validationResult.data;
 
+    // Additional validation for required fields (already validated by schema, but keeping for safety)
     if (!topic || !bloom_level || !knowledge_dimension) {
       return new Response(
         JSON.stringify({ error: 'Missing required fields: topic, bloom_level, knowledge_dimension' }),

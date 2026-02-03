@@ -1,12 +1,64 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
+
+/**
+ * Sanitize input to remove potential prompt injection characters
+ */
+function sanitizeInput(input: string): string {
+  return input
+    .replace(/[\r\n]+/g, ' ')  // Remove newlines
+    .replace(/[`'"\\]/g, '')    // Remove quotes and backticks
+    .replace(/\s{2,}/g, ' ')    // Collapse multiple spaces
+    .trim();
+}
+
+/**
+ * Topic Distribution Schema with validation
+ */
+const TopicDistributionSchema = z.object({
+  topic: z.string()
+    .min(1, { message: "Topic cannot be empty" })
+    .max(200, { message: "Topic must not exceed 200 characters" })
+    .transform(val => sanitizeInput(val)),
+  counts: z.object({
+    remembering: z.number().int().min(0).max(50).default(0),
+    understanding: z.number().int().min(0).max(50).default(0),
+    applying: z.number().int().min(0).max(50).default(0),
+    analyzing: z.number().int().min(0).max(50).default(0),
+    evaluating: z.number().int().min(0).max(50).default(0),
+    creating: z.number().int().min(0).max(50).default(0),
+    difficulty: z.object({
+      easy: z.number().int().min(0).max(100).default(0),
+      average: z.number().int().min(0).max(100).default(0),
+      difficult: z.number().int().min(0).max(100).default(0)
+    })
+  })
+});
+
+/**
+ * Input Validation Schema - Prevents prompt injection and resource exhaustion
+ */
+const GenerationInputSchema = z.object({
+  tos_id: z.string().uuid({ message: "Invalid tos_id format" }),
+  total_items: z.number()
+    .int({ message: "total_items must be an integer" })
+    .min(1, { message: "total_items must be at least 1" })
+    .max(200, { message: "total_items must not exceed 200" }),
+  distributions: z.array(TopicDistributionSchema)
+    .min(1, { message: "At least one distribution is required" })
+    .max(50, { message: "Maximum 50 topic distributions allowed" }),
+  allow_unapproved: z.boolean().default(false),
+  prefer_existing: z.boolean().default(true),
+  force_ai_generation: z.boolean().default(false)
+});
 
 // ============= TYPES =============
 
@@ -1645,11 +1697,24 @@ serve(async (req) => {
   }
 
   try {
-    const body: GenerationInput = await req.json();
+    const rawBody = await req.json();
     
-    if (!body.tos_id || !body.total_items || !body.distributions) {
-      throw new Error('Missing required fields: tos_id, total_items, distributions');
+    // Validate input with Zod
+    const validationResult = GenerationInputSchema.safeParse(rawBody);
+    
+    if (!validationResult.success) {
+      const errors = validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`);
+      console.error('Validation failed:', errors);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid request parameters', 
+          details: errors 
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
+    
+    const body = validationResult.data;
 
     console.log(`\n🎯 === SLOT-BASED TOS GENERATION v2.1 ===`);
     console.log(`📋 TOS ID: ${body.tos_id}`);
