@@ -424,6 +424,19 @@ All colors MUST be HSL.
     border-bottom: 2pt solid black !important;
   }
 
+  /* Answer Key Subsection for Multi-Section Format */
+  .print-exam-only .answer-key-subsection {
+    margin-bottom: 16pt !important;
+  }
+
+  .print-exam-only .answer-key-subsection h4 {
+    font-size: 11pt !important;
+    font-weight: bold !important;
+    margin-bottom: 8pt !important;
+    padding-bottom: 4pt !important;
+    border-bottom: 1pt solid #666 !important;
+  }
+
   .print-exam-only .answer-key-grid {
     display: grid !important;
     grid-template-columns: repeat(5, 1fr) !important;
