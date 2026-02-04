@@ -15,6 +15,21 @@ interface TestItem {
   difficulty?: string;
   bloom_level?: string;
   topic?: string;
+  section_id?: string;
+  section_label?: string;
+  section_title?: string;
+  question_number?: number;
+}
+
+interface ExamSection {
+  id: string;
+  label: string;
+  title: string;
+  questionType: string;
+  startNumber: number;
+  endNumber: number;
+  pointsPerQuestion: number;
+  instruction: string;
 }
 
 interface ExamPrintViewProps {
@@ -29,6 +44,7 @@ interface ExamPrintViewProps {
     time_limit?: number;
     items?: TestItem[];
     version_label?: string;
+    format_sections?: ExamSection[];
   };
   showAnswerKey?: boolean;
 }
@@ -55,29 +71,13 @@ export function ExamPrintView({ test, showAnswerKey = true }: ExamPrintViewProps
 
   const items: TestItem[] = Array.isArray(test.items) ? test.items : [];
 
-  // Group questions by type
-  const grouped = {
-    mcq: [] as TestItem[],
-    true_false: [] as TestItem[],
-    short_answer: [] as TestItem[],
-    essay: [] as TestItem[],
-    other: [] as TestItem[]
-  };
+  // Check if items have section info (multi-section format)
+  const hasMultipleSections = items.some(q => q.section_id || q.section_label);
 
-  items.forEach(q => {
-    const type = (q.question_type || q.type || '').toLowerCase();
-    if (type === 'mcq' || type === 'multiple-choice' || type === 'multiple_choice') {
-      grouped.mcq.push(q);
-    } else if (type === 'true_false' || type === 'true-false' || type === 'truefalse') {
-      grouped.true_false.push(q);
-    } else if (type === 'short_answer' || type === 'fill-blank' || type === 'fill_blank' || type === 'identification') {
-      grouped.short_answer.push(q);
-    } else if (type === 'essay') {
-      grouped.essay.push(q);
-    } else {
-      grouped.other.push(q);
-    }
-  });
+  // Group questions by section if multi-section format
+  const sectionedQuestions = hasMultipleSections
+    ? groupBySection(items)
+    : groupByType(items);
 
   const getQuestionText = (item: TestItem): string => {
     return item.question_text || item.question || '';
@@ -107,100 +107,11 @@ export function ExamPrintView({ test, showAnswerKey = true }: ExamPrintViewProps
     return [];
   };
 
-  let questionNumber = 1;
+  // Calculate total points
+  const totalPoints = items.reduce((sum, item) => sum + (item.points || 1), 0);
 
   // Build answer key
-  const answerKeyData: { num: number; answer: string; type: string }[] = [];
-  let keyNum = 1;
-  for (const section of [grouped.mcq, grouped.true_false, grouped.short_answer, grouped.essay, grouped.other]) {
-    for (const question of section) {
-      const correctAnswer = getCorrectAnswer(question);
-      const questionType = (question.question_type || question.type || '').toLowerCase();
-      
-      let answer = '';
-      if (questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice') {
-        if (typeof correctAnswer === 'number') {
-          answer = String.fromCharCode(65 + correctAnswer);
-        } else if (typeof correctAnswer === 'string' && /^[A-Da-d]$/.test(correctAnswer)) {
-          answer = correctAnswer.toUpperCase();
-        } else {
-          answer = String(correctAnswer || '').substring(0, 20);
-        }
-      } else if (questionType === 'true_false' || questionType === 'true-false' || questionType === 'truefalse') {
-        answer = String(correctAnswer || '').toLowerCase() === 'true' ? 'True' : 'False';
-      } else if (correctAnswer) {
-        answer = String(correctAnswer).substring(0, 30) + (String(correctAnswer).length > 30 ? '...' : '');
-      } else {
-        answer = 'See rubric';
-      }
-      
-      answerKeyData.push({ num: keyNum, answer, type: questionType });
-      keyNum++;
-    }
-  }
-
-  const renderSection = (title: string, instruction: string, questions: TestItem[], sectionType: string) => {
-    if (questions.length === 0) return null;
-    
-    return (
-      <div className="exam-section">
-        <div className="section-header">
-          <h2>{title} <span className="section-points">({questions.length} items)</span></h2>
-          <p className="section-instruction">{instruction}</p>
-        </div>
-        
-        {questions.map((item, idx) => {
-          const qText = getQuestionText(item);
-          const options = getMCQOptions(item);
-          const currentNum = questionNumber++;
-          
-          return (
-            <div key={item.id || idx} className="exam-question">
-              <p>
-                <span className="question-number">{currentNum}.</span>
-                <span className="question-text">{qText}</span>
-              </p>
-              
-              {sectionType === 'mcq' && options.length > 0 && (
-                <div className="mcq-options">
-                  {options.map((opt) => (
-                    <div key={opt.key} className="mcq-option">
-                      <span className="option-letter">{opt.key}.</span>
-                      <span className="option-text">{opt.text}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {sectionType === 'true_false' && (
-                <div className="mcq-options">
-                  <div className="mcq-option">
-                    <span className="option-letter">___</span>
-                    <span className="option-text">True / False</span>
-                  </div>
-                </div>
-              )}
-              
-              {sectionType === 'short_answer' && (
-                <div style={{ marginLeft: '20pt', marginTop: '4pt' }}>
-                  <span>Answer: </span>
-                  <span className="short-answer-line"></span>
-                </div>
-              )}
-              
-              {sectionType === 'essay' && (
-                <div className="essay-answer-space">
-                  {[...Array(6)].map((_, i) => (
-                    <div key={i} className="essay-lines"></div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
+  const answerKeyData = buildAnswerKey(sectionedQuestions);
 
   return (
     <div className="print-exam-only">
@@ -234,14 +145,14 @@ export function ExamPrintView({ test, showAnswerKey = true }: ExamPrintViewProps
         <div className="student-info-field">
           <span className="field-label">Score:</span>
           <span className="field-line"></span>
-          <span style={{ marginLeft: '4pt' }}>/ {items.length}</span>
+          <span style={{ marginLeft: '4pt' }}>/ {totalPoints}</span>
         </div>
       </div>
 
       {/* Exam Summary */}
       <div className="exam-summary">
         <span>Total Questions: {items.length}</span>
-        <span>Total Points: {items.reduce((sum, item) => sum + (item.points || 1), 0)}</span>
+        <span>Total Points: {totalPoints}</span>
         {test.time_limit && <span>Time Limit: {test.time_limit} minutes</span>}
       </div>
 
@@ -254,11 +165,70 @@ export function ExamPrintView({ test, showAnswerKey = true }: ExamPrintViewProps
       )}
 
       {/* Questions by Section */}
-      {renderSection('Section A: Multiple Choice', 'Choose the letter of the best answer.', grouped.mcq, 'mcq')}
-      {renderSection('Section B: True or False', 'Write TRUE if the statement is correct, FALSE if incorrect.', grouped.true_false, 'true_false')}
-      {renderSection('Section C: Identification / Fill in the Blank', 'Write the correct answer on the blank provided.', grouped.short_answer, 'short_answer')}
-      {renderSection('Section D: Essay', 'Answer the following questions in complete sentences.', grouped.essay, 'essay')}
-      {renderSection('Section E: Other', 'Answer the following questions.', grouped.other, 'other')}
+      {sectionedQuestions.map((section) => (
+        <div key={section.id} className="exam-section">
+          <div className="section-header">
+            <h2>
+              {section.label}: {section.title}
+              <span className="section-points">
+                ({section.questions.length} items{section.pointsPerQuestion > 1 ? `, ${section.pointsPerQuestion} pts each` : ''})
+              </span>
+            </h2>
+            <p className="section-instruction">{section.instruction}</p>
+          </div>
+          
+          {section.questions.map((item) => {
+            const qText = getQuestionText(item);
+            const options = getMCQOptions(item);
+            const questionNum = item.question_number || section.startNumber;
+            const questionType = normalizeQuestionType(item.question_type || item.type || section.questionType);
+            
+            return (
+              <div key={item.id} className="exam-question">
+                <p>
+                  <span className="question-number">{questionNum}.</span>
+                  <span className="question-text">{qText}</span>
+                </p>
+                
+                {questionType === 'mcq' && options.length > 0 && (
+                  <div className="mcq-options">
+                    {options.map((opt) => (
+                      <div key={opt.key} className="mcq-option">
+                        <span className="option-letter">{opt.key}.</span>
+                        <span className="option-text">{opt.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {questionType === 'true_false' && (
+                  <div className="mcq-options">
+                    <div className="mcq-option">
+                      <span className="option-letter">___</span>
+                      <span className="option-text">True / False</span>
+                    </div>
+                  </div>
+                )}
+                
+                {(questionType === 'fill_blank' || questionType === 'short_answer') && (
+                  <div style={{ marginLeft: '20pt', marginTop: '4pt' }}>
+                    <span>Answer: </span>
+                    <span className="short-answer-line"></span>
+                  </div>
+                )}
+                
+                {questionType === 'essay' && (
+                  <div className="essay-answer-space">
+                    {[...Array(8)].map((_, i) => (
+                      <div key={i} className="essay-lines"></div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
 
       {/* Answer Key */}
       {showAnswerKey && (
@@ -267,16 +237,193 @@ export function ExamPrintView({ test, showAnswerKey = true }: ExamPrintViewProps
           <p style={{ textAlign: 'center', marginBottom: '12pt', fontSize: '10pt' }}>
             {test.title} {test.version_label && `- Version ${test.version_label}`}
           </p>
-          <div className="answer-key-grid">
-            {answerKeyData.map((item) => (
-              <div key={item.num} className="answer-key-item">
-                <span className="key-number">{item.num}.</span>
-                <span className="key-answer">{item.answer}</span>
+          
+          {sectionedQuestions.map((section) => (
+            <div key={section.id} className="answer-key-subsection">
+              <h4 style={{ fontSize: '10pt', marginBottom: '6pt', fontWeight: 'bold' }}>
+                {section.label}: {section.title}
+              </h4>
+              <div className="answer-key-grid">
+                {answerKeyData
+                  .filter(item => item.section === section.id)
+                  .map((item) => (
+                    <div key={item.num} className="answer-key-item">
+                      <span className="key-number">{item.num}.</span>
+                      <span className="key-answer">{item.answer}</span>
+                    </div>
+                  ))}
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
+}
+
+// Group items that have section_id/section_label (format-aware generation)
+function groupBySection(items: TestItem[]): SectionGroup[] {
+  const sectionMap = new Map<string, SectionGroup>();
+  
+  let questionNum = 1;
+  items.forEach(item => {
+    const sectionId = item.section_id || 'A';
+    const sectionLabel = item.section_label || 'Section A';
+    const sectionTitle = item.section_title || 'Questions';
+    
+    if (!sectionMap.has(sectionId)) {
+      sectionMap.set(sectionId, {
+        id: sectionId,
+        label: sectionLabel,
+        title: sectionTitle,
+        questionType: item.question_type || item.type || 'mcq',
+        startNumber: questionNum,
+        endNumber: questionNum,
+        pointsPerQuestion: item.points || 1,
+        instruction: getSectionInstruction(item.question_type || item.type || 'mcq'),
+        questions: []
+      });
+    }
+    
+    const section = sectionMap.get(sectionId)!;
+    section.questions.push({ ...item, question_number: questionNum });
+    section.endNumber = questionNum;
+    questionNum++;
+  });
+  
+  return Array.from(sectionMap.values());
+}
+
+// Group items by question type (legacy format)
+function groupByType(items: TestItem[]): SectionGroup[] {
+  const grouped = {
+    mcq: [] as TestItem[],
+    true_false: [] as TestItem[],
+    short_answer: [] as TestItem[],
+    essay: [] as TestItem[],
+    other: [] as TestItem[]
+  };
+
+  items.forEach(q => {
+    const type = normalizeQuestionType(q.question_type || q.type || '');
+    if (type === 'mcq') grouped.mcq.push(q);
+    else if (type === 'true_false') grouped.true_false.push(q);
+    else if (type === 'fill_blank' || type === 'short_answer') grouped.short_answer.push(q);
+    else if (type === 'essay') grouped.essay.push(q);
+    else grouped.other.push(q);
+  });
+
+  const sections: SectionGroup[] = [];
+  let questionNum = 1;
+  const sectionLabels = ['A', 'B', 'C', 'D', 'E'];
+  let sectionIdx = 0;
+
+  const addSection = (
+    questions: TestItem[], 
+    title: string, 
+    type: string, 
+    instruction: string,
+    points: number = 1
+  ) => {
+    if (questions.length === 0) return;
+    
+    const numberedQuestions = questions.map((q, idx) => ({
+      ...q,
+      question_number: questionNum + idx
+    }));
+    
+    sections.push({
+      id: sectionLabels[sectionIdx],
+      label: `Section ${sectionLabels[sectionIdx]}`,
+      title,
+      questionType: type,
+      startNumber: questionNum,
+      endNumber: questionNum + questions.length - 1,
+      pointsPerQuestion: points,
+      instruction,
+      questions: numberedQuestions
+    });
+    
+    questionNum += questions.length;
+    sectionIdx++;
+  };
+
+  addSection(grouped.mcq, 'Multiple Choice', 'mcq', 'Choose the letter of the best answer.');
+  addSection(grouped.true_false, 'True or False', 'true_false', 'Write TRUE if the statement is correct, FALSE if incorrect.');
+  addSection(grouped.short_answer, 'Identification / Fill in the Blank', 'short_answer', 'Write the correct answer on the blank provided.');
+  addSection(grouped.essay, 'Essay', 'essay', 'Answer the following questions in complete sentences.', 5);
+  addSection(grouped.other, 'Other', 'other', 'Answer the following questions.');
+
+  return sections;
+}
+
+function normalizeQuestionType(type: string): string {
+  const t = (type || '').toLowerCase().replace(/-/g, '_');
+  if (t === 'multiple_choice' || t === 'mcq') return 'mcq';
+  if (t === 'true_false' || t === 'truefalse') return 'true_false';
+  if (t === 'fill_blank' || t === 'fill_in_blank' || t === 'identification') return 'fill_blank';
+  if (t === 'short_answer') return 'short_answer';
+  if (t === 'essay') return 'essay';
+  return t || 'mcq';
+}
+
+function getSectionInstruction(type: string): string {
+  const normalized = normalizeQuestionType(type);
+  const instructions: Record<string, string> = {
+    mcq: 'Choose the letter of the best answer.',
+    true_false: 'Write TRUE if the statement is correct, FALSE if incorrect.',
+    fill_blank: 'Write the correct answer on the blank provided.',
+    short_answer: 'Write the correct answer on the blank provided.',
+    essay: 'Answer the following questions in complete sentences.'
+  };
+  return instructions[normalized] || 'Answer the following questions.';
+}
+
+interface SectionGroup {
+  id: string;
+  label: string;
+  title: string;
+  questionType: string;
+  startNumber: number;
+  endNumber: number;
+  pointsPerQuestion: number;
+  instruction: string;
+  questions: TestItem[];
+}
+
+function buildAnswerKey(sections: SectionGroup[]): { num: number; answer: string; section: string; type: string }[] {
+  const answerKey: { num: number; answer: string; section: string; type: string }[] = [];
+  
+  sections.forEach(section => {
+    section.questions.forEach(question => {
+      const correctAnswer = question.correct_answer ?? question.correctAnswer;
+      const questionType = normalizeQuestionType(question.question_type || question.type || section.questionType);
+      
+      let answer = '';
+      if (questionType === 'mcq') {
+        if (typeof correctAnswer === 'number') {
+          answer = String.fromCharCode(65 + correctAnswer);
+        } else if (typeof correctAnswer === 'string' && /^[A-Da-d]$/.test(correctAnswer)) {
+          answer = correctAnswer.toUpperCase();
+        } else {
+          answer = String(correctAnswer || '').substring(0, 20);
+        }
+      } else if (questionType === 'true_false') {
+        answer = String(correctAnswer || '').toLowerCase() === 'true' ? 'True' : 'False';
+      } else if (correctAnswer) {
+        answer = String(correctAnswer).substring(0, 30) + (String(correctAnswer).length > 30 ? '...' : '');
+      } else {
+        answer = 'See rubric';
+      }
+      
+      answerKey.push({
+        num: question.question_number || 0,
+        answer,
+        section: section.id,
+        type: questionType
+      });
+    });
+  });
+  
+  return answerKey;
 }

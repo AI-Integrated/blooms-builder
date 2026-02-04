@@ -1,0 +1,599 @@
+/**
+ * Format-Aware Test Generation Service
+ * Generates multi-section exams based on predefined formats
+ */
+
+import { supabase } from "@/integrations/supabase/client";
+import { 
+  ExamFormat, 
+  ExamSection, 
+  QuestionType, 
+  getExamFormat, 
+  getDefaultFormat,
+  scaledFormatSections 
+} from "@/types/examFormats";
+import type { TOSCriteria } from "./testGenerationService";
+
+export interface FormatAwareTestConfig {
+  format: ExamFormat;
+  tosCriteria: TOSCriteria[];
+  testTitle: string;
+  testMetadata?: any;
+}
+
+export interface SectionedQuestion {
+  id: string;
+  question_number: number;
+  section_id: string;
+  section_label: string;
+  section_title: string;
+  question_text: string;
+  question_type: QuestionType;
+  choices?: Record<string, string> | string[];
+  correct_answer: string;
+  points: number;
+  topic: string;
+  bloom_level: string;
+  difficulty: string;
+}
+
+export interface FormatAwareTestResult {
+  id: string;
+  title: string;
+  format_id: string;
+  sections: {
+    id: string;
+    label: string;
+    title: string;
+    instruction: string;
+    questions: SectionedQuestion[];
+    totalPoints: number;
+  }[];
+  answer_key: any[];
+  totalItems: number;
+  totalPoints: number;
+}
+
+/**
+ * Main entry point for format-aware test generation
+ */
+export async function generateFormatAwareTest(
+  config: FormatAwareTestConfig
+): Promise<FormatAwareTestResult> {
+  console.log("🧠 === STARTING FORMAT-AWARE TEST GENERATION ===");
+  console.log("📋 Format:", config.format.name);
+  console.log("📊 Sections:", config.format.sections.length);
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error("User not authenticated");
+  }
+
+  // Calculate total items needed
+  const totalItems = config.tosCriteria.reduce((sum, c) => sum + c.count, 0);
+  
+  // Scale format sections to match total items
+  const scaledSections = scaledFormatSections(config.format, totalItems);
+  
+  console.log("📐 Scaled sections:", scaledSections.map(s => 
+    `${s.label}: ${s.endNumber - s.startNumber + 1} ${s.questionType}`
+  ));
+
+  // Distribute TOS criteria across sections based on format requirements
+  const sectionAssignments = distributeCriteriaToSections(
+    config.tosCriteria,
+    scaledSections
+  );
+
+  // Generate questions for each section
+  const sectionResults: FormatAwareTestResult['sections'] = [];
+  const allQuestions: SectionedQuestion[] = [];
+  const answerKey: any[] = [];
+  let globalQuestionNumber = 1;
+
+  for (const section of scaledSections) {
+    const sectionCriteria = sectionAssignments.get(section.id) || [];
+    const sectionQuestionCount = section.endNumber - section.startNumber + 1;
+    
+    console.log(`\n📦 Generating Section ${section.label}: ${section.title}`);
+    console.log(`   Need: ${sectionQuestionCount} ${section.questionType} questions`);
+
+    const sectionQuestions = await generateSectionQuestions(
+      section,
+      sectionCriteria,
+      sectionQuestionCount,
+      globalQuestionNumber,
+      user.id
+    );
+
+    // Map questions with section info
+    const mappedQuestions: SectionedQuestion[] = sectionQuestions.map((q, idx) => ({
+      ...q,
+      question_number: globalQuestionNumber + idx,
+      section_id: section.id,
+      section_label: section.label,
+      section_title: section.title,
+      question_type: section.questionType,
+      points: section.pointsPerQuestion
+    }));
+
+    // Update answer key
+    mappedQuestions.forEach(q => {
+      answerKey.push({
+        question_number: q.question_number,
+        question_id: q.id,
+        correct_answer: q.correct_answer,
+        section: section.label,
+        question_type: section.questionType,
+        points: section.pointsPerQuestion
+      });
+    });
+
+    const sectionPoints = mappedQuestions.length * section.pointsPerQuestion;
+    
+    sectionResults.push({
+      id: section.id,
+      label: section.label,
+      title: section.title,
+      instruction: section.instruction,
+      questions: mappedQuestions,
+      totalPoints: sectionPoints
+    });
+
+    allQuestions.push(...mappedQuestions);
+    globalQuestionNumber += mappedQuestions.length;
+    
+    console.log(`   ✓ Generated ${mappedQuestions.length} questions (${sectionPoints} pts)`);
+  }
+
+  const totalPoints = sectionResults.reduce((sum, s) => sum + s.totalPoints, 0);
+
+  console.log(`\n✅ Total: ${allQuestions.length} questions, ${totalPoints} points`);
+
+  // Save to database - cast items and answer_key to Json type
+  const testData = {
+    title: config.testTitle,
+    subject: config.testMetadata?.subject || null,
+    course: config.testMetadata?.course || null,
+    year_section: config.testMetadata?.year_section || null,
+    exam_period: config.testMetadata?.exam_period || null,
+    school_year: config.testMetadata?.school_year || null,
+    items: allQuestions as unknown as any,
+    answer_key: answerKey as unknown as any,
+    tos_id: config.testMetadata?.tos_id || null,
+    points_per_question: 1,
+    created_by: user.id,
+  };
+
+  const { data: savedTest, error: saveError } = await supabase
+    .from('generated_tests')
+    .insert(testData)
+    .select()
+    .single();
+
+  if (saveError) {
+    console.error("❌ Failed to save test:", saveError);
+    throw new Error(`Failed to save test: ${saveError.message}`);
+  }
+
+  console.log(`✅ Test saved with ID: ${savedTest.id}`);
+
+  return {
+    id: savedTest.id,
+    title: config.testTitle,
+    format_id: config.format.id,
+    sections: sectionResults,
+    answer_key: answerKey,
+    totalItems: allQuestions.length,
+    totalPoints
+  };
+}
+
+/**
+ * Distribute TOS criteria across sections based on question type requirements
+ */
+function distributeCriteriaToSections(
+  criteria: TOSCriteria[],
+  sections: ExamSection[]
+): Map<string, TOSCriteria[]> {
+  const assignments = new Map<string, TOSCriteria[]>();
+  
+  // Initialize empty arrays for each section
+  sections.forEach(s => assignments.set(s.id, []));
+  
+  // Create a pool of criteria with remaining counts
+  const criteriaPool = criteria.map(c => ({ ...c, remaining: c.count }));
+  
+  // Assign criteria to sections based on Bloom level suitability
+  for (const section of sections) {
+    const sectionCount = section.endNumber - section.startNumber + 1;
+    const sectionCriteria: TOSCriteria[] = [];
+    let assigned = 0;
+    
+    // Priority mapping: which Bloom levels work best for each question type
+    const bloomPriority: Record<QuestionType, string[]> = {
+      mcq: ['remembering', 'understanding', 'applying', 'analyzing', 'evaluating', 'creating'],
+      true_false: ['remembering', 'understanding'],
+      fill_blank: ['remembering', 'understanding', 'applying'],
+      essay: ['evaluating', 'creating', 'analyzing', 'applying']
+    };
+    
+    const priorityBlooms = bloomPriority[section.questionType];
+    
+    // First pass: assign from priority Bloom levels
+    for (const bloom of priorityBlooms) {
+      if (assigned >= sectionCount) break;
+      
+      for (const criterion of criteriaPool) {
+        if (assigned >= sectionCount) break;
+        if (criterion.remaining <= 0) continue;
+        if (criterion.bloom_level.toLowerCase() !== bloom) continue;
+        
+        const toAssign = Math.min(criterion.remaining, sectionCount - assigned);
+        if (toAssign > 0) {
+          sectionCriteria.push({
+            ...criterion,
+            count: toAssign
+          });
+          criterion.remaining -= toAssign;
+          assigned += toAssign;
+        }
+      }
+    }
+    
+    // Second pass: fill remaining from any Bloom level
+    if (assigned < sectionCount) {
+      for (const criterion of criteriaPool) {
+        if (assigned >= sectionCount) break;
+        if (criterion.remaining <= 0) continue;
+        
+        const toAssign = Math.min(criterion.remaining, sectionCount - assigned);
+        if (toAssign > 0) {
+          sectionCriteria.push({
+            ...criterion,
+            count: toAssign
+          });
+          criterion.remaining -= toAssign;
+          assigned += toAssign;
+        }
+      }
+    }
+    
+    assignments.set(section.id, sectionCriteria);
+  }
+  
+  return assignments;
+}
+
+/**
+ * Generate questions for a specific section with the required question type
+ */
+async function generateSectionQuestions(
+  section: ExamSection,
+  criteria: TOSCriteria[],
+  targetCount: number,
+  startNumber: number,
+  userId: string
+): Promise<any[]> {
+  const questions: any[] = [];
+  
+  // Query existing questions from bank matching criteria and type
+  for (const criterion of criteria) {
+    const dbQuestionType = mapQuestionTypeToDb(section.questionType);
+    
+    const { data: bankQuestions } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('deleted', false)
+      .eq('approved', true)
+      .eq('question_type', dbQuestionType)
+      .ilike('topic', `%${criterion.topic}%`)
+      .order('used_count', { ascending: true })
+      .limit(criterion.count);
+    
+    if (bankQuestions && bankQuestions.length > 0) {
+      questions.push(...bankQuestions.slice(0, criterion.count));
+    }
+  }
+  
+  // If we don't have enough, generate the rest
+  const remaining = targetCount - questions.length;
+  if (remaining > 0) {
+    console.log(`   🤖 Generating ${remaining} ${section.questionType} questions via AI...`);
+    
+    const generatedQuestions = await generateTypedQuestions(
+      section.questionType,
+      criteria,
+      remaining,
+      userId
+    );
+    
+    questions.push(...generatedQuestions);
+  }
+  
+  // Ensure we have exactly the target count
+  return questions.slice(0, targetCount);
+}
+
+/**
+ * Map our question types to database format
+ */
+function mapQuestionTypeToDb(type: QuestionType): string {
+  const mapping: Record<QuestionType, string> = {
+    mcq: 'mcq',
+    true_false: 'true_false',
+    fill_blank: 'short_answer',
+    essay: 'essay'
+  };
+  return mapping[type];
+}
+
+/**
+ * Generate questions of a specific type using templates
+ */
+async function generateTypedQuestions(
+  questionType: QuestionType,
+  criteria: TOSCriteria[],
+  count: number,
+  userId: string
+): Promise<any[]> {
+  const questions: any[] = [];
+  const letters = ['A', 'B', 'C', 'D'];
+  
+  // Distribute count across criteria
+  const perCriteria = Math.ceil(count / Math.max(criteria.length, 1));
+  let generated = 0;
+  
+  for (const criterion of criteria) {
+    if (generated >= count) break;
+    
+    const toGenerate = Math.min(perCriteria, count - generated);
+    
+    for (let i = 0; i < toGenerate; i++) {
+      const question = generateTypedQuestion(
+        questionType,
+        criterion,
+        generated + i,
+        userId
+      );
+      questions.push(question);
+      generated++;
+    }
+  }
+  
+  // If we still need more, generate from first criterion
+  while (generated < count && criteria.length > 0) {
+    const question = generateTypedQuestion(
+      questionType,
+      criteria[0],
+      generated,
+      userId
+    );
+    questions.push(question);
+    generated++;
+  }
+  
+  return questions;
+}
+
+/**
+ * Generate a single question of a specific type
+ */
+function generateTypedQuestion(
+  questionType: QuestionType,
+  criterion: TOSCriteria,
+  index: number,
+  userId: string
+): any {
+  const baseQuestion = {
+    id: `gen-${questionType}-${Date.now()}-${index}`,
+    topic: criterion.topic,
+    bloom_level: criterion.bloom_level,
+    difficulty: criterion.difficulty,
+    knowledge_dimension: criterion.knowledge_dimension || 'conceptual',
+    created_by: 'ai',
+    status: 'approved',
+    approved: true,
+    owner: userId,
+    ai_confidence_score: 0.75,
+    metadata: { generated_for_section: questionType }
+  };
+  
+  switch (questionType) {
+    case 'mcq':
+      return generateMCQ(baseQuestion, criterion, index);
+    case 'true_false':
+      return generateTrueFalse(baseQuestion, criterion, index);
+    case 'fill_blank':
+      return generateFillBlank(baseQuestion, criterion, index);
+    case 'essay':
+      return generateEssay(baseQuestion, criterion, index);
+    default:
+      return generateMCQ(baseQuestion, criterion, index);
+  }
+}
+
+function generateMCQ(base: any, criterion: TOSCriteria, index: number): any {
+  const templates = getMCQTemplates(criterion);
+  const template = templates[index % templates.length];
+  
+  return {
+    ...base,
+    question_type: 'mcq',
+    question_text: template.question,
+    choices: template.choices,
+    correct_answer: template.answer
+  };
+}
+
+function generateTrueFalse(base: any, criterion: TOSCriteria, index: number): any {
+  const templates = getTrueFalseTemplates(criterion);
+  const template = templates[index % templates.length];
+  
+  return {
+    ...base,
+    question_type: 'true_false',
+    question_text: template.statement,
+    choices: { A: 'True', B: 'False' },
+    correct_answer: template.isTrue ? 'True' : 'False'
+  };
+}
+
+function generateFillBlank(base: any, criterion: TOSCriteria, index: number): any {
+  const templates = getFillBlankTemplates(criterion);
+  const template = templates[index % templates.length];
+  
+  return {
+    ...base,
+    question_type: 'short_answer',
+    question_text: template.question,
+    correct_answer: template.answer
+  };
+}
+
+function generateEssay(base: any, criterion: TOSCriteria, index: number): any {
+  const templates = getEssayTemplates(criterion);
+  const template = templates[index % templates.length];
+  
+  return {
+    ...base,
+    question_type: 'essay',
+    question_text: template.prompt,
+    correct_answer: template.rubric,
+    metadata: { 
+      ...base.metadata,
+      points: 5,
+      rubric_criteria: template.criteria
+    }
+  };
+}
+
+// Template generators for each question type
+function getMCQTemplates(criterion: TOSCriteria) {
+  return [
+    {
+      question: `What is the primary purpose of ${criterion.topic}?`,
+      choices: {
+        A: 'To establish foundational principles and systematic approaches',
+        B: 'To provide optional guidelines without enforcement',
+        C: 'To serve as historical reference only',
+        D: 'To replace existing methodologies entirely'
+      },
+      answer: 'A'
+    },
+    {
+      question: `Which statement best describes the key characteristic of ${criterion.topic}?`,
+      choices: {
+        A: 'It applies only in theoretical contexts',
+        B: 'It provides a structured framework for consistent implementation',
+        C: 'It is primarily used for documentation purposes',
+        D: 'It requires no specialized knowledge to apply'
+      },
+      answer: 'B'
+    },
+    {
+      question: `In the context of ${criterion.topic}, what approach is most effective?`,
+      choices: {
+        A: 'Applying principles systematically while adapting to context',
+        B: 'Following rigid procedures regardless of circumstances',
+        C: 'Ignoring established guidelines when convenient',
+        D: 'Delegating all decisions to external parties'
+      },
+      answer: 'A'
+    },
+    {
+      question: `What distinguishes effective implementation of ${criterion.topic}?`,
+      choices: {
+        A: 'Speed of implementation over quality',
+        B: 'Alignment between objectives and actual practices',
+        C: 'Minimum documentation requirements',
+        D: 'Complete automation of all processes'
+      },
+      answer: 'B'
+    },
+    {
+      question: `How does ${criterion.topic} contribute to overall effectiveness?`,
+      choices: {
+        A: 'By providing clear guidelines and measurable outcomes',
+        B: 'By eliminating the need for human judgment',
+        C: 'By reducing all processes to simple rules',
+        D: 'By avoiding any form of evaluation'
+      },
+      answer: 'A'
+    }
+  ];
+}
+
+function getTrueFalseTemplates(criterion: TOSCriteria) {
+  return [
+    {
+      statement: `${criterion.topic} requires systematic implementation to achieve consistent results.`,
+      isTrue: true
+    },
+    {
+      statement: `Understanding the principles of ${criterion.topic} is essential for effective application.`,
+      isTrue: true
+    },
+    {
+      statement: `${criterion.topic} can be applied effectively without any prior knowledge or preparation.`,
+      isTrue: false
+    },
+    {
+      statement: `The primary purpose of ${criterion.topic} is to provide optional guidelines.`,
+      isTrue: false
+    },
+    {
+      statement: `Effective implementation of ${criterion.topic} requires adaptation to specific contexts.`,
+      isTrue: true
+    },
+    {
+      statement: `${criterion.topic} produces identical results regardless of implementation approach.`,
+      isTrue: false
+    }
+  ];
+}
+
+function getFillBlankTemplates(criterion: TOSCriteria) {
+  return [
+    {
+      question: `The systematic approach to ${criterion.topic} is called __________.`,
+      answer: 'structured methodology'
+    },
+    {
+      question: `${criterion.topic} is characterized by its focus on __________ and consistency.`,
+      answer: 'quality'
+    },
+    {
+      question: `When implementing ${criterion.topic}, the first step is to establish clear __________.`,
+      answer: 'objectives'
+    },
+    {
+      question: `The effectiveness of ${criterion.topic} is measured through __________ criteria.`,
+      answer: 'defined'
+    },
+    {
+      question: `${criterion.topic} requires __________ feedback to ensure continuous improvement.`,
+      answer: 'regular'
+    }
+  ];
+}
+
+function getEssayTemplates(criterion: TOSCriteria) {
+  return [
+    {
+      prompt: `Analyze the key principles of ${criterion.topic} and explain how they contribute to effective implementation. Provide specific examples to support your analysis.`,
+      rubric: 'Answers should demonstrate understanding of core principles, provide relevant examples, and show logical analysis.',
+      criteria: ['Understanding of principles', 'Quality of examples', 'Logical analysis', 'Clear communication']
+    },
+    {
+      prompt: `Evaluate the effectiveness of different approaches to ${criterion.topic}. Discuss the strengths and limitations of each approach and justify which you consider most effective.`,
+      rubric: 'Answers should compare multiple approaches, identify strengths/limitations, and provide justified conclusions.',
+      criteria: ['Comparison of approaches', 'Critical evaluation', 'Justification of conclusions', 'Depth of analysis']
+    },
+    {
+      prompt: `Design a comprehensive plan for implementing ${criterion.topic} in a real-world scenario. Include objectives, methodology, and success criteria.`,
+      rubric: 'Answers should present a complete plan with clear objectives, practical methodology, and measurable success criteria.',
+      criteria: ['Clear objectives', 'Practical methodology', 'Success criteria', 'Feasibility']
+    }
+  ];
+}

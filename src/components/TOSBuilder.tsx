@@ -30,6 +30,8 @@ import {
   BLOOM_DISTRIBUTION,
   getDifficultyForBloom
 } from "@/utils/tosCalculator";
+import { ExamFormatSelector, SelectedFormatSummary } from "@/components/generation/ExamFormatSelector";
+import { EXAM_FORMATS, getDefaultFormat, getExamFormat } from "@/types/examFormats";
 
 const topicSchema = z.object({
   topic: z.string().min(1, "Topic name is required"),
@@ -69,6 +71,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationStatus, setGenerationStatus] = useState("");
   const [collaborators, setCollaborators] = useState<any[]>([]);
+  const [selectedFormatId, setSelectedFormatId] = useState(getDefaultFormat().id);
 
   // Real-time collaboration setup
   const { users: presenceUsers, isConnected } = usePresence('tos-builder', {
@@ -462,6 +465,23 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
           <SufficiencyAnalysisPanel analysis={sufficiencyAnalysis} />
         )}
         
+        {/* Exam Format Selection */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5" />
+              Exam Format
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ExamFormatSelector 
+              value={selectedFormatId} 
+              onChange={setSelectedFormatId}
+              totalItems={tosMatrix.total_items}
+            />
+          </CardContent>
+        </Card>
+
         {/* Generate Test Section */}
         <Card className="mt-6">
           <CardHeader>
@@ -471,11 +491,18 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-6">
-            <div className="text-center space-y-4">
-              <p className="text-muted-foreground">
-                Generate a complete test with multiple versions based on this TOS matrix. 
-                The system will use existing approved questions and generate AI questions for any gaps.
-              </p>
+            <div className="space-y-6">
+              <div className="text-center">
+                <p className="text-muted-foreground">
+                  Generate a complete multi-section test based on this TOS matrix and selected format.
+                  The system will use existing approved questions and generate AI questions for any gaps.
+                </p>
+              </div>
+              
+              {/* Selected Format Summary */}
+              <div className="max-w-md mx-auto">
+                <SelectedFormatSummary formatId={selectedFormatId} />
+              </div>
               
               {isGeneratingTest && (
                 <div className="space-y-2">
@@ -487,24 +514,26 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                 </div>
               )}
               
-              <Button
-                variant="default"
-                size="lg"
-                className="px-8 py-3"
-                onClick={handleGenerateTest}
-                disabled={isGeneratingTest || isAnalyzing}
-              >
-                {isGeneratingTest ? (
-                  <>
-                    <Brain className="w-5 h-5 mr-2 animate-spin" />
-                    {generationStatus || 'Generating Test...'}
-                  </>
-                ) : (
-                  <>
-                    🧠 Generate Complete Test from TOS
-                  </>
-                )}
-              </Button>
+              <div className="text-center">
+                <Button
+                  variant="default"
+                  size="lg"
+                  className="px-8 py-3"
+                  onClick={handleGenerateTest}
+                  disabled={isGeneratingTest || isAnalyzing}
+                >
+                  {isGeneratingTest ? (
+                    <>
+                      <Brain className="w-5 h-5 mr-2 animate-spin" />
+                      {generationStatus || 'Generating Test...'}
+                    </>
+                  ) : (
+                    <>
+                      🧠 Generate Multi-Section Test
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
