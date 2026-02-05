@@ -14,6 +14,7 @@ export interface ExamSection {
   endNumber: number;
   pointsPerQuestion: number;
   instruction: string;
+  essayCount?: number; // For essay sections: number of actual essay questions (items are grouped)
 }
 
 export interface ExamFormat {
@@ -50,13 +51,14 @@ export const FORMAT_1: ExamFormat = {
 
 /**
  * Format 2: MCQ + True/False or Fill-in-the-Blank + Essay
+ * Section C: 1 essay question covering items 46-50 (worth 5 points total)
  */
 export const FORMAT_2: ExamFormat = {
   id: 'format_2',
   name: 'Format 2: MCQ + T/F or Fill-in + Essay',
-  description: 'Section A – MCQ (1–35), Section B – T/F or Fill-in (36–45), Section C – Essay (46–50)',
+  description: 'Section A – MCQ (1–35), Section B – T/F or Fill-in (36–45), Section C – Essay (46–50; 1 essay, 5 pts)',
   totalItems: 50,
-  totalPoints: 50, // 35 + 10 + 5 (essay = 5pts for 1 question)
+  totalPoints: 50, // 35 + 10 + 5 (1 essay = 5pts covering items 46-50)
   sections: [
     {
       id: 'A',
@@ -85,7 +87,8 @@ export const FORMAT_2: ExamFormat = {
       questionType: 'essay',
       startNumber: 46,
       endNumber: 50,
-      pointsPerQuestion: 5,
+      pointsPerQuestion: 5, // 1 essay question worth 5 points
+      essayCount: 1, // Number of actual essay questions
       instruction: 'Answer the following question in complete sentences. (5 points)'
     }
   ]
@@ -136,6 +139,7 @@ export const FORMAT_3: ExamFormat = {
 
 /**
  * Format 4: MCQ + Essay
+ * Section B: 2 essay questions, each covering 5 items (41-45, 46-50), 5 pts each = 10 pts total
  */
 export const FORMAT_4: ExamFormat = {
   id: 'format_4',
@@ -161,7 +165,8 @@ export const FORMAT_4: ExamFormat = {
       questionType: 'essay',
       startNumber: 41,
       endNumber: 50,
-      pointsPerQuestion: 5,
+      pointsPerQuestion: 5, // Each essay is worth 5 points
+      essayCount: 2, // 2 essay questions: 41-45 and 46-50
       instruction: 'Answer the following questions in complete sentences. (5 points each)'
     }
   ]

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -5,6 +6,7 @@ import { Download, Printer } from "lucide-react";
 import { PDFExporter } from "@/utils/exportPdf";
 import { toast } from "sonner";
 import { CanonicalTOSMatrix, BloomLevel } from "@/utils/tosCalculator";
+import { supabase } from "@/integrations/supabase/client";
 
 interface TOSMatrixProps {
   data: CanonicalTOSMatrix;
@@ -12,6 +14,30 @@ interface TOSMatrixProps {
 
 export const TOSMatrix = ({ data }: TOSMatrixProps) => {
   const { matrix, total_hours, distribution, bloom_totals } = data;
+  const [institution, setInstitution] = useState<string | null>(null);
+  
+  // Fetch institution from user profile
+  useEffect(() => {
+    const fetchInstitution = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('institution')
+            .eq('id', user.id)
+            .single();
+          
+          if (profile?.institution) {
+            setInstitution(profile.institution);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching institution:', error);
+      }
+    };
+    fetchInstitution();
+  }, []);
 
   const bloomLevels: { key: BloomLevel; label: string; difficulty: string }[] = [
     { key: 'remembering', label: 'Remembering', difficulty: 'Easy' },
@@ -98,9 +124,13 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
       <Card id="tos-matrix-export" className="print:shadow-none print:border-none">
         <CardHeader className="text-center border-b">
           <div className="space-y-2">
-            <h1 className="text-xl font-bold">AGUSAN DEL SUR STATE COLLEGE OF AGRICULTURE AND TECHNOLOGY</h1>
-            <h2 className="text-lg font-semibold">College of Computing and Information Sciences</h2>
-            <h3 className="text-lg">TABLE OF SPECIFICATION</h3>
+            {/* Only render institution if it exists in user profile */}
+            {institution && (
+              <>
+                <h1 className="text-xl font-bold">{institution}</h1>
+              </>
+            )}
+            <h3 className="text-lg font-semibold">TABLE OF SPECIFICATION</h3>
           </div>
           
           <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
