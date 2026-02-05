@@ -10,7 +10,6 @@ import {
   BarChart3,
   Database,
   Layers,
-  Save,
   Clock
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -142,7 +141,6 @@ export default function TeacherDashboard() {
           </CardContent>
         </Card>
 
-        {/* Redesigned TOS Management Card - Focus on Templates */}
         <Card className="bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">TOS Templates</CardTitle>
@@ -151,31 +149,6 @@ export default function TeacherDashboard() {
           <CardContent>
             <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">{stats?.totalTOS || 0}</div>
             <p className="text-xs text-muted-foreground">Saved specifications</p>
-            <div className="mt-3 flex gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="text-xs h-7"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate("/teacher/tos");
-                }}
-              >
-                <Save className="h-3 w-3 mr-1" />
-                Create New
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="text-xs h-7"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate("/teacher/tos-history");
-                }}
-              >
-                Reuse Template
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </div>
