@@ -72,6 +72,17 @@ export function ExamFormatSelector({ value, onChange, totalItems = 50 }: ExamFor
 export function SelectedFormatSummary({ formatId }: { formatId: string }) {
   const format = EXAM_FORMATS.find(f => f.id === formatId) || getDefaultFormat();
   
+  // Calculate total points correctly - essays have essayCount for actual question count
+  const calculateSectionPoints = (section: typeof format.sections[0]) => {
+    if (section.questionType === 'essay' && section.essayCount) {
+      // Essay sections: essayCount essays * pointsPerQuestion
+      return section.essayCount * section.pointsPerQuestion;
+    }
+    // Regular sections: count * points per question
+    const count = section.endNumber - section.startNumber + 1;
+    return count * section.pointsPerQuestion;
+  };
+  
   return (
     <Card>
       <CardContent className="pt-4">
@@ -79,8 +90,7 @@ export function SelectedFormatSummary({ formatId }: { formatId: string }) {
           <div className="font-medium">{format.name}</div>
           <div className="grid gap-1">
             {format.sections.map(section => {
-              const count = section.endNumber - section.startNumber + 1;
-              const points = count * section.pointsPerQuestion;
+              const points = calculateSectionPoints(section);
               return (
                 <div key={section.id} className="flex justify-between text-muted-foreground">
                   <span>{section.label}: {section.title} (Q{section.startNumber}-{section.endNumber})</span>

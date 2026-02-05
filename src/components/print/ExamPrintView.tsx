@@ -177,16 +177,39 @@ export function ExamPrintView({ test, showAnswerKey = true }: ExamPrintViewProps
             <p className="section-instruction">{section.instruction}</p>
           </div>
           
-          {section.questions.map((item) => {
+          {section.questions.map((item, qIdx) => {
             const qText = getQuestionText(item);
             const options = getMCQOptions(item);
             const questionNum = item.question_number || section.startNumber;
             const questionType = normalizeQuestionType(item.question_type || item.type || section.questionType);
             
+            // For essay questions, format as range (e.g., "41–45." or "46–50.")
+            const getEssayNumberRange = () => {
+              // Check if this is an essay section with essay grouping
+              if (questionType === 'essay' && section.questionType === 'essay') {
+                const sectionItemCount = section.endNumber - section.startNumber + 1;
+                const essayCount = section.questions.length;
+                
+                if (essayCount > 0 && sectionItemCount > essayCount) {
+                  // Items are grouped into essays
+                  const itemsPerEssay = Math.floor(sectionItemCount / essayCount);
+                  const essayStart = section.startNumber + (qIdx * itemsPerEssay);
+                  const essayEnd = qIdx === essayCount - 1 
+                    ? section.endNumber 
+                    : essayStart + itemsPerEssay - 1;
+                  return `${essayStart}–${essayEnd}`;
+                }
+              }
+              // Default: just show the question number
+              return `${questionNum}`;
+            };
+            
+            const displayNumber = questionType === 'essay' ? getEssayNumberRange() : `${questionNum}`;
+            
             return (
               <div key={item.id} className="exam-question">
                 <p>
-                  <span className="question-number">{questionNum}.</span>
+                  <span className="question-number">{displayNumber}.</span>
                   <span className="question-text">{qText}</span>
                 </p>
                 
@@ -246,9 +269,9 @@ export function ExamPrintView({ test, showAnswerKey = true }: ExamPrintViewProps
               <div className="answer-key-grid">
                 {answerKeyData
                   .filter(item => item.section === section.id)
-                  .map((item) => (
-                    <div key={item.num} className="answer-key-item">
-                      <span className="key-number">{item.num}.</span>
+                  .map((item, idx) => (
+                    <div key={`${section.id}-${idx}`} className="answer-key-item">
+                      <span className="key-number">{item.displayNum}.</span>
                       <span className="key-answer">{item.answer}</span>
                     </div>
                   ))}
@@ -391,16 +414,18 @@ interface SectionGroup {
   questions: TestItem[];
 }
 
-function buildAnswerKey(sections: SectionGroup[]): { num: number; answer: string; section: string; type: string }[] {
-  const answerKey: { num: number; answer: string; section: string; type: string }[] = [];
+function buildAnswerKey(sections: SectionGroup[]): { num: number; displayNum: string; answer: string; section: string; type: string }[] {
+  const answerKey: { num: number; displayNum: string; answer: string; section: string; type: string }[] = [];
   
   sections.forEach(section => {
-    section.questions.forEach(question => {
+    const questionType = normalizeQuestionType(section.questionType);
+    
+    section.questions.forEach((question, qIdx) => {
       const correctAnswer = question.correct_answer ?? question.correctAnswer;
-      const questionType = normalizeQuestionType(question.question_type || question.type || section.questionType);
+      const qType = normalizeQuestionType(question.question_type || question.type || section.questionType);
       
       let answer = '';
-      if (questionType === 'mcq') {
+      if (qType === 'mcq') {
         if (typeof correctAnswer === 'number') {
           answer = String.fromCharCode(65 + correctAnswer);
         } else if (typeof correctAnswer === 'string' && /^[A-Da-d]$/.test(correctAnswer)) {
@@ -408,7 +433,7 @@ function buildAnswerKey(sections: SectionGroup[]): { num: number; answer: string
         } else {
           answer = String(correctAnswer || '').substring(0, 20);
         }
-      } else if (questionType === 'true_false') {
+      } else if (qType === 'true_false') {
         answer = String(correctAnswer || '').toLowerCase() === 'true' ? 'True' : 'False';
       } else if (correctAnswer) {
         answer = String(correctAnswer).substring(0, 30) + (String(correctAnswer).length > 30 ? '...' : '');
@@ -416,11 +441,28 @@ function buildAnswerKey(sections: SectionGroup[]): { num: number; answer: string
         answer = 'See rubric';
       }
       
+      // Calculate display number - use range for essays
+      let displayNum = String(question.question_number || 0);
+      if (qType === 'essay' && section.questionType === 'essay') {
+        const sectionItemCount = section.endNumber - section.startNumber + 1;
+        const essayCount = section.questions.length;
+        
+        if (essayCount > 0 && sectionItemCount > essayCount) {
+          const itemsPerEssay = Math.floor(sectionItemCount / essayCount);
+          const essayStart = section.startNumber + (qIdx * itemsPerEssay);
+          const essayEnd = qIdx === essayCount - 1 
+            ? section.endNumber 
+            : essayStart + itemsPerEssay - 1;
+          displayNum = `${essayStart}–${essayEnd}`;
+        }
+      }
+      
       answerKey.push({
         num: question.question_number || 0,
+        displayNum,
         answer,
         section: section.id,
-        type: questionType
+        type: qType
       });
     });
   });

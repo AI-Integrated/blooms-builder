@@ -93,18 +93,28 @@ export async function generateFormatAwareTest(
 
   for (const section of scaledSections) {
     const sectionCriteria = sectionAssignments.get(section.id) || [];
-    const sectionQuestionCount = section.endNumber - section.startNumber + 1;
+    const sectionItemCount = section.endNumber - section.startNumber + 1;
+    
+    // For essay sections, use essayCount if specified (items are grouped per essay)
+    const actualQuestionCount = section.questionType === 'essay' && section.essayCount
+      ? section.essayCount
+      : sectionItemCount;
     
     console.log(`\n📦 Generating Section ${section.label}: ${section.title}`);
-    console.log(`   Need: ${sectionQuestionCount} ${section.questionType} questions`);
+    console.log(`   Need: ${actualQuestionCount} ${section.questionType} question(s) (covering items ${section.startNumber}-${section.endNumber})`);
 
     const sectionQuestions = await generateSectionQuestions(
       section,
       sectionCriteria,
-      sectionQuestionCount,
+      actualQuestionCount,
       globalQuestionNumber,
       user.id
     );
+
+    // Calculate points correctly for essays (essayCount * pointsPerQuestion) vs regular (count * 1)
+    const sectionPoints = section.questionType === 'essay' && section.essayCount
+      ? section.essayCount * section.pointsPerQuestion
+      : sectionQuestions.length * section.pointsPerQuestion;
 
     // Map questions with section info
     const mappedQuestions: SectionedQuestion[] = sectionQuestions.map((q, idx) => ({
@@ -118,9 +128,23 @@ export async function generateFormatAwareTest(
     }));
 
     // Update answer key
-    mappedQuestions.forEach(q => {
+    mappedQuestions.forEach((q, idx) => {
+      // For essays, calculate the item range this essay covers
+      let displayNumber: string;
+      if (section.questionType === 'essay' && section.essayCount) {
+        const itemsPerEssay = Math.floor(sectionItemCount / section.essayCount);
+        const essayStart = section.startNumber + (idx * itemsPerEssay);
+        const essayEnd = idx === section.essayCount - 1
+          ? section.endNumber
+          : essayStart + itemsPerEssay - 1;
+        displayNumber = `${essayStart}-${essayEnd}`;
+      } else {
+        displayNumber = String(q.question_number);
+      }
+      
       answerKey.push({
         question_number: q.question_number,
+        display_number: displayNumber,
         question_id: q.id,
         correct_answer: q.correct_answer,
         section: section.label,
@@ -128,8 +152,6 @@ export async function generateFormatAwareTest(
         points: section.pointsPerQuestion
       });
     });
-
-    const sectionPoints = mappedQuestions.length * section.pointsPerQuestion;
     
     sectionResults.push({
       id: section.id,
@@ -143,7 +165,7 @@ export async function generateFormatAwareTest(
     allQuestions.push(...mappedQuestions);
     globalQuestionNumber += mappedQuestions.length;
     
-    console.log(`   ✓ Generated ${mappedQuestions.length} questions (${sectionPoints} pts)`);
+    console.log(`   ✓ Generated ${mappedQuestions.length} question(s) (${sectionPoints} pts)`);
   }
 
   const totalPoints = sectionResults.reduce((sum, s) => sum + s.totalPoints, 0);
