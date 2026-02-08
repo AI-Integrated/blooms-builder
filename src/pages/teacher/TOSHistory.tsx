@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -13,11 +13,11 @@ import {
   Layers,
   Clock,
   BookOpen,
+  ChevronRight
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { TOSViewDialog } from '@/components/tos/TOSViewDialog';
 
 interface TOSEntry {
   id: string;
@@ -29,8 +29,6 @@ interface TOSEntry {
   exam_period: string | null;
   school_year: string | null;
   total_items: number | null;
-  prepared_by?: string | null;
-  noted_by?: string | null;
   created_at: string;
   topics: any;
   distribution: any;
@@ -40,7 +38,6 @@ export default function TOSHistory() {
   const [tosEntries, setTosEntries] = useState<TOSEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewTos, setViewTos] = useState<TOSEntry | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -97,8 +94,9 @@ export default function TOSHistory() {
     });
   };
 
-  const handleViewTOS = (tos: TOSEntry) => {
-    setViewTos(tos);
+  const handleViewTOS = (tosId: string) => {
+    // Navigate to the TOS view page (read-only preview with print/export)
+    navigate(`/teacher/tos-view/${tosId}`);
   };
 
   const filteredEntries = tosEntries.filter(tos => {
@@ -272,7 +270,7 @@ export default function TOSHistory() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleViewTOS(tos)}
+                      onClick={() => handleViewTOS(tos.id)}
                     >
                       <Eye className="h-4 w-4 mr-1" />
                       View
@@ -311,13 +309,6 @@ export default function TOSHistory() {
           </div>
         </CardContent>
       </Card>
-
-      {/* TOS View Dialog */}
-      <TOSViewDialog
-        open={!!viewTos}
-        onOpenChange={(open) => { if (!open) setViewTos(null); }}
-        tos={viewTos}
-      />
     </div>
   );
 }

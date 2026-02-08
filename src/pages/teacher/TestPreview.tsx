@@ -8,13 +8,18 @@ import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Printer, Download, Key } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { usePDFExport } from '@/hooks/usePDFExport';
+import { ExamPrintView } from '@/components/print/ExamPrintView';
 
 interface TestItem {
-  id?: number;
-  question: string;
-  type: string;
+  id?: string | number;
+  question?: string;
+  question_text?: string;
+  type?: string;
+  question_type?: string;
   options?: string[];
+  choices?: Record<string, string> | string[];
   correctAnswer?: string | number;
+  correct_answer?: string | number;
   points?: number;
   difficulty?: string;
   bloom_level?: string;
@@ -111,25 +116,65 @@ export default function TestPreview() {
     }
   };
 
+  // Helper to get question text from various field names
+  const getQuestionText = (item: TestItem): string => {
+    return item.question_text || item.question || '';
+  };
+
+  // Helper to get question type
+  const getQuestionType = (item: TestItem): string => {
+    return (item.question_type || item.type || '').toLowerCase();
+  };
+
+  // Helper to get correct answer
+  const getCorrectAnswer = (item: TestItem): string | number | undefined => {
+    return item.correct_answer ?? item.correctAnswer;
+  };
+
+  // Helper to get MCQ options from various formats
+  const getMCQOptions = (item: TestItem): { key: string; text: string }[] => {
+    const choices = item.choices || item.options;
+    if (!choices) return [];
+    
+    // Handle object format {A: "...", B: "...", C: "...", D: "..."}
+    if (typeof choices === 'object' && !Array.isArray(choices)) {
+      return ['A', 'B', 'C', 'D']
+        .filter(key => choices[key])
+        .map(key => ({ key, text: choices[key] as string }));
+    }
+    
+    // Handle array format ["option1", "option2", ...]
+    if (Array.isArray(choices)) {
+      return choices.map((text, idx) => ({
+        key: String.fromCharCode(65 + idx),
+        text: String(text)
+      }));
+    }
+    
+    return [];
+  };
+
   return (
-    <div className="container mx-auto py-8 px-4 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <Button variant="outline" onClick={() => navigate('/teacher/my-tests')}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Tests
-        </Button>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handlePrint}>
-            <Printer className="h-4 w-4 mr-2" />
-            Print
+    <>
+      {/* Screen View */}
+      <div className="container mx-auto py-4 sm:py-8 px-4 space-y-6 screen-only">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <Button variant="outline" onClick={() => navigate('/teacher/my-tests')} size="sm" className="sm:size-default">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Tests
           </Button>
-          <Button variant="outline" onClick={handleExport}>
-            <Download className="h-4 w-4 mr-2" />
-            Export PDF
-          </Button>
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button onClick={handlePrint} className="flex-1 sm:flex-none">
+              <Printer className="h-4 w-4 mr-2" />
+              Print
+            </Button>
+            <Button variant="outline" onClick={handleExport} className="flex-1 sm:flex-none">
+              <Download className="h-4 w-4 mr-2" />
+              Export PDF
+            </Button>
+          </div>
         </div>
-      </div>
 
       {/* Test Header */}
       <Card>
@@ -184,48 +229,89 @@ export default function TestPreview() {
           {items.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">No questions in this test</p>
           ) : (
-            items.map((item, index) => (
-              <div key={item.id || index} className="space-y-3">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="outline" className="font-mono">
-                        Q{index + 1}
-                      </Badge>
-                      {item.difficulty && (
-                        <Badge className={getDifficultyColor(item.difficulty)}>
-                          {item.difficulty}
+            items.map((item, index) => {
+              const questionText = getQuestionText(item);
+              const questionType = getQuestionType(item);
+              const mcqOptions = getMCQOptions(item);
+              const correctAnswer = getCorrectAnswer(item);
+              const isMCQ = questionType === 'mcq' || questionType === 'multiple-choice' || questionType === 'multiple_choice';
+              
+              return (
+                <div key={item.id || index} className="space-y-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="font-mono">
+                          Q{index + 1}
                         </Badge>
+                        {item.difficulty && (
+                          <Badge className={getDifficultyColor(item.difficulty)}>
+                            {item.difficulty}
+                          </Badge>
+                        )}
+                        {item.bloom_level && (
+                          <Badge variant="secondary">{item.bloom_level}</Badge>
+                        )}
+                        {item.topic && (
+                          <Badge variant="secondary">{item.topic}</Badge>
+                        )}
+                        {item.points && (
+                          <Badge variant="outline">{item.points} pts</Badge>
+                        )}
+                      </div>
+                      <p className="text-base leading-relaxed">{questionText}</p>
+                      
+                      {isMCQ && mcqOptions.length > 0 && (
+                        <div className="mt-3 space-y-2 ml-6">
+                          {mcqOptions.map((option) => {
+                            const isCorrect = correctAnswer === option.key || correctAnswer === option.key.toLowerCase();
+                            return (
+                              <div 
+                                key={option.key} 
+                                className={`flex items-start gap-2 p-2 rounded ${isCorrect ? 'bg-green-50 border border-green-300' : ''}`}
+                              >
+                                <span className="text-muted-foreground font-mono font-medium">
+                                  {option.key}.
+                                </span>
+                                <span className="text-sm">{option.text}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
-                      {item.bloom_level && (
-                        <Badge variant="secondary">{item.bloom_level}</Badge>
+
+                      {/* True/False */}
+                      {(questionType === 'true_false' || questionType === 'true-false' || questionType === 'truefalse') && (
+                        <div className="flex gap-4 mt-3 ml-6">
+                          <div className={`px-4 py-2 rounded border ${String(correctAnswer).toLowerCase() === 'true' ? 'bg-green-50 border-green-300' : ''}`}>
+                            True
+                          </div>
+                          <div className={`px-4 py-2 rounded border ${String(correctAnswer).toLowerCase() === 'false' ? 'bg-green-50 border-green-300' : ''}`}>
+                            False
+                          </div>
+                        </div>
                       )}
-                      {item.topic && (
-                        <Badge variant="secondary">{item.topic}</Badge>
+
+                      {/* Short Answer / Fill in the Blank */}
+                      {(questionType === 'short_answer' || questionType === 'fill-blank' || questionType === 'fill_blank' || questionType === 'identification') && (
+                        <div className="mt-3 ml-6 p-2 bg-muted rounded">
+                          <span className="text-sm text-muted-foreground">Answer: </span>
+                          <span className="font-medium">{correctAnswer || '—'}</span>
+                        </div>
                       )}
-                      {item.points && (
-                        <Badge variant="outline">{item.points} pts</Badge>
+
+                      {/* Essay */}
+                      {questionType === 'essay' && (
+                        <div className="mt-3 ml-6 border-t border-dashed pt-2 text-sm text-muted-foreground italic">
+                          Essay response required
+                        </div>
                       )}
                     </div>
-                    <p className="text-base leading-relaxed">{item.question}</p>
-                    
-                    {item.type === 'multiple-choice' && item.options && (
-                      <div className="mt-3 space-y-2 ml-6">
-                        {item.options.map((option, optIndex) => (
-                          <div key={optIndex} className="flex items-start gap-2">
-                            <span className="text-muted-foreground font-mono">
-                              {String.fromCharCode(65 + optIndex)}.
-                            </span>
-                            <span>{option}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
+                  {index < items.length - 1 && <Separator className="mt-6" />}
                 </div>
-                {index < items.length - 1 && <Separator className="mt-6" />}
-              </div>
-            ))
+              );
+            })
           )}
         </CardContent>
       </Card>
@@ -241,18 +327,25 @@ export default function TestPreview() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {items.map((item, index) => (
-                <div key={item.id || index} className="p-3 bg-muted rounded-lg text-center">
-                  <div className="text-sm text-muted-foreground">Q{index + 1}</div>
-                  <div className="font-mono font-bold text-primary">
-                    {item.correctAnswer !== undefined ? item.correctAnswer : '—'}
+              {items.map((item, index) => {
+                const answer = getCorrectAnswer(item);
+                return (
+                  <div key={item.id || index} className="p-3 bg-muted rounded-lg text-center">
+                    <div className="text-sm text-muted-foreground">Q{index + 1}</div>
+                    <div className="font-mono font-bold text-primary">
+                      {answer !== undefined ? String(answer) : '—'}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
       )}
-    </div>
+      </div>
+
+      {/* Print View - Hidden on screen, shown when printing */}
+      <ExamPrintView test={test} showAnswerKey={true} />
+    </>
   );
 }
