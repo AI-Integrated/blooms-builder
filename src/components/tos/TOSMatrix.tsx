@@ -53,7 +53,7 @@ export function TOSMatrix({ data }: TOSMatrixProps) {
   const totalHours = Object.values(data.distribution).reduce((sum, topic) => sum + topic.hours, 0)
 
   return (
-    <div className="bg-white text-black print-tos-landscape print:shadow-none" id="tos-document">
+    <div className="bg-white text-black print:shadow-none" id="tos-document">
       {/* Official Document Header */}
       <div className="border-2 border-black mb-4 print:mb-2">
         {/* Institution Header */}
