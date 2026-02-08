@@ -51,50 +51,59 @@ export const usePDFExport = () => {
         throw new Error('TOS matrix element not found');
       }
 
-      // Create PDF with A4 dimensions
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      // Create PDF in LANDSCAPE orientation for TOS two-way table
+      const pdf = new jsPDF('landscape', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
+      const marginX = 12;
+      const marginY = 10;
 
-      // Convert HTML to canvas
+      // Convert HTML to canvas with higher scale for landscape clarity
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 2.5,
         useCORS: true,
         allowTaint: true,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        width: element.scrollWidth,
+        height: element.scrollHeight,
       });
 
-      const imgData = canvas.toDataURL('image/png');
-      const imgWidth = pdfWidth - 20; // 10mm margin on each side
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const imgData = canvas.toDataURL('image/png', 0.95);
+      const usableWidth = pdfWidth - (marginX * 2);
+      const usableHeight = pdfHeight - (marginY * 2);
+      const imgHeight = (canvas.height * usableWidth) / canvas.width;
 
-      // Add image to PDF
-      if (imgHeight <= pdfHeight - 20) {
+      // Add image to PDF with proper margins
+      if (imgHeight <= usableHeight) {
         // Fits on one page
-        pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
+        pdf.addImage(imgData, 'PNG', marginX, marginY, usableWidth, imgHeight);
       } else {
-        // Multiple pages needed
+        // Multiple pages needed - scale to fit width, paginate vertically
         let remainingHeight = imgHeight;
-        let position = 0;
-        
+        let srcY = 0;
+        const ratio = canvas.width / usableWidth;
+
         while (remainingHeight > 0) {
-          const pageHeight = Math.min(remainingHeight, pdfHeight - 20);
-          
-          if (position > 0) {
+          if (srcY > 0) {
             pdf.addPage();
           }
-          
-          pdf.addImage(
-            imgData, 
-            'PNG', 
-            10, 
-            10, 
-            imgWidth, 
-            imgHeight
-          );
-          
-          remainingHeight -= (pdfHeight - 20);
-          position += (pdfHeight - 20);
+
+          const sliceHeight = Math.min(remainingHeight, usableHeight);
+          const srcSliceHeight = sliceHeight * ratio;
+
+          // Create a slice canvas for this page
+          const sliceCanvas = document.createElement('canvas');
+          sliceCanvas.width = canvas.width;
+          sliceCanvas.height = srcSliceHeight;
+          const ctx = sliceCanvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(canvas, 0, srcY, canvas.width, srcSliceHeight, 0, 0, canvas.width, srcSliceHeight);
+            const sliceData = sliceCanvas.toDataURL('image/png', 0.95);
+            pdf.addImage(sliceData, 'PNG', marginX, marginY, usableWidth, sliceHeight);
+          }
+
+          srcY += srcSliceHeight;
+          remainingHeight -= usableHeight;
         }
       }
 

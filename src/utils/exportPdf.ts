@@ -236,7 +236,7 @@ export class PDFExporter {
   }
 
   // Print element directly
-  static printElement(elementId: string, title?: string): void {
+  static printElement(elementId: string, title?: string, landscape: boolean = false): void {
     const element = document.getElementById(elementId);
     if (!element) {
       throw new Error(`Element with ID "${elementId}" not found`);
@@ -247,50 +247,59 @@ export class PDFExporter {
       throw new Error('Failed to open print window');
     }
 
+    const pageSize = landscape ? 'letter landscape' : 'letter';
+    const margins = landscape ? '0.5in 0.6in' : '0.75in 1in';
+
     printWindow.document.write(`
       <html>
         <head>
           <title>${title || 'Print'}</title>
           <style>
+            @page {
+              size: ${pageSize};
+              margin: ${margins};
+            }
             body { 
-              font-family: Arial, sans-serif; 
-              margin: 20px; 
-              line-height: 1.6; 
+              font-family: "Times New Roman", Times, serif; 
+              margin: 0; 
+              padding: 0;
+              line-height: 1.4; 
               color: #000;
               background: #fff;
+              font-size: 11pt;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
-            .question { 
-              margin-bottom: 20px; 
-              page-break-inside: avoid; 
-            }
-            .choices { 
-              margin-left: 20px; 
-            }
-            .choice { 
-              margin-bottom: 5px; 
-            }
-            .header { 
-              text-align: center; 
-              border-bottom: 2px solid #000; 
-              padding-bottom: 10px; 
-              margin-bottom: 20px; 
+            * {
+              font-family: "Times New Roman", Times, serif;
             }
             table {
               border-collapse: collapse;
               width: 100%;
+              table-layout: auto;
             }
             th, td {
-              border: 1px solid #000;
-              padding: 8px;
-              text-align: left;
+              border: 1.5px solid #000;
+              padding: 5px 7px;
+              text-align: center;
+              vertical-align: middle;
+              font-size: 10pt;
             }
             th {
-              background-color: #f0f0f0;
+              background-color: #e8f5e9;
+              font-weight: bold;
+              font-size: 9pt;
+            }
+            .no-print { display: none; }
+            .header { 
+              text-align: center; 
+              border-bottom: 2px solid #000; 
+              padding-bottom: 8px; 
+              margin-bottom: 12px; 
             }
             @media print { 
-              .no-print { display: none; }
-              body { margin: 0; }
-              .page-break { page-break-before: always; }
+              .no-print { display: none !important; }
+              body { margin: 0; padding: 0; }
             }
           </style>
         </head>
@@ -301,8 +310,10 @@ export class PDFExporter {
     `);
     
     printWindow.document.close();
-    printWindow.print();
-    printWindow.close();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 300);
   }
 
   // Batch export multiple documents
