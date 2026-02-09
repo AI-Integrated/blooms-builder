@@ -463,9 +463,6 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
             <Button variant="outline" onClick={() => setShowMatrix(false)}>
               Edit TOS
             </Button>
-            <Button onClick={handleSaveMatrix} variant="default">
-              Save TOS Matrix
-            </Button>
           </div>
         </div>
         

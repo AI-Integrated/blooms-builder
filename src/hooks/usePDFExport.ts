@@ -51,8 +51,8 @@ export const usePDFExport = () => {
         throw new Error('TOS matrix element not found');
       }
 
-      // Create PDF with A4 dimensions
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      // Create PDF with landscape A4 dimensions for TOS
+      const pdf = new jsPDF('l', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
 

@@ -74,9 +74,14 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
 
   const exportToPDF = async () => {
     try {
-      const result = await PDFExporter.exportTOSMatrix(data.id, true);
-      const filename = `TOS_${data.subject_no}_${data.exam_period}.pdf`;
-      PDFExporter.downloadBlob(result.blob, filename);
+      const result = await PDFExporter.exportToPDF('tos-matrix-export', {
+        filename: `TOS_${data.subject_no}_${data.exam_period}.pdf`,
+        orientation: 'landscape',
+        format: 'a4',
+        scale: 2,
+        quality: 0.95,
+      });
+      PDFExporter.downloadBlob(result.blob, `TOS_${data.subject_no}_${data.exam_period}.pdf`);
       toast.success("TOS matrix exported successfully!");
     } catch (error) {
       toast.error("Failed to export PDF");
@@ -105,8 +110,8 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
       </div>
 
       {/* Printable TOS Document */}
-      <Card id="tos-matrix-export" className="print:shadow-none print:border-none bg-white text-black">
-        <CardContent className="p-6 print:p-4">
+      <Card id="tos-matrix-export" className="tos-print-area print:shadow-none print:border-none bg-white text-black">
+        <CardContent className="p-6 print:p-2">
           {/* Title */}
           <div className="text-center mb-6 print:mb-4">
             {institution && <h2 className="text-lg font-bold uppercase">{institution}</h2>}

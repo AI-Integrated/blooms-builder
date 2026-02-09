@@ -139,12 +139,46 @@ All colors MUST be HSL.
    PRINT STYLESHEET - Academic Exam Format
    ======================================== */
 @media print {
-  /* Page setup */
+  /* Page setup - default for exams */
   @page {
     size: letter;
     margin: 0.75in 1in;
   }
 
+  /* Landscape page for TOS matrix */
+  @page tos-landscape {
+    size: letter landscape;
+    margin: 0.5in 0.75in;
+  }
+
+  .tos-print-area {
+    page: tos-landscape;
+  }
+
+  /* TOS table print formatting */
+  .tos-print-area table {
+    font-size: 10pt !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  .tos-print-area table th,
+  .tos-print-area table td {
+    border: 1pt solid black !important;
+    padding: 4pt 6pt !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+  }
+
+  .tos-print-area table th {
+    background-color: #f0f0f0 !important;
+    font-weight: bold !important;
+  }
+
+  .tos-print-area h1,
+  .tos-print-area h2 {
+    font-family: "Times New Roman", Times, serif !important;
+  }
   /* Reset for print */
   html, body {
     margin: 0 !important;
