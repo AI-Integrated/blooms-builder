@@ -43,10 +43,8 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
     { key: 'creating', label: 'Creating', difficulty: 'Difficult', pct: '15%' },
   ];
 
-  const getTopicTotal = (topic: string) => distribution[topic]?.total || 0;
-
   const formatItemNumbers = (items: number[]) => {
-    if (items.length === 0) return "-";
+    if (items.length === 0) return "";
     if (items.length === 1) return `(${items[0]})`;
     const sorted = [...items].sort((a, b) => a - b);
     const groups: string[] = [];
@@ -67,17 +65,17 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
       .flatMap(l => distribution[topicName]?.[l.key]?.items || [])
       .sort((a, b) => a - b);
     if (allItems.length === 0) return "-";
-    const first = allItems[0];
-    const last = allItems[allItems.length - 1];
-    return `(${first}-${last})`;
+    return "I";
   };
+
+  const getTopicTotal = (topic: string) => distribution[topic]?.total || 0;
 
   const exportToPDF = async () => {
     try {
       const result = await PDFExporter.exportToPDF('tos-matrix-export', {
         filename: `TOS_${data.subject_no}_${data.exam_period}.pdf`,
         orientation: 'landscape',
-        format: 'a4',
+        format: 'letter',
         scale: 2,
         quality: 0.95,
       });
@@ -110,129 +108,127 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
       </div>
 
       {/* Printable TOS Document */}
-      <Card id="tos-matrix-export" className="tos-print-area print:shadow-none print:border-none bg-white text-black">
-        <CardContent className="p-6 print:p-2">
-          {/* Title */}
-          <div className="text-center mb-6 print:mb-4">
-            {institution && <h2 className="text-lg font-bold uppercase">{institution}</h2>}
-            <h1 className="text-xl font-bold uppercase tracking-wide">TWO-WAY TABLE OF SPECIFICATION</h1>
-          </div>
+      <div id="tos-matrix-export" className="tos-print-area bg-white text-black p-6">
+        {/* Title */}
+        <div className="text-center mb-4">
+          {institution && <h2 className="text-base font-bold uppercase mb-1">{institution}</h2>}
+          <h1 className="text-lg font-bold uppercase tracking-wide">TWO-WAY TABLE OF SPECIFICATION</h1>
+        </div>
 
-          {/* Course Information - two column layout */}
-          <div className="grid grid-cols-2 gap-x-8 gap-y-1 mb-6 print:mb-4 text-sm">
-            <div><strong>Subject No.:</strong> {data.subject_no}</div>
-            <div><strong>Examination Period:</strong> {data.exam_period}</div>
-            <div><strong>Description:</strong> {data.description}</div>
-            <div><strong>Year and Section:</strong> {data.year_section}</div>
-            <div><strong>Course:</strong> {data.course}</div>
-            <div><strong>School Year:</strong> {data.school_year}</div>
-          </div>
+        {/* Course Information - two column layout matching reference */}
+        <div className="tos-course-info grid grid-cols-2 gap-x-8 gap-y-0.5 mb-4 text-sm">
+          <div><strong>Subject No.:</strong> {data.subject_no}</div>
+          <div><strong>Examination Period:</strong> {data.exam_period}</div>
+          <div><strong>Description:</strong> {data.description}</div>
+          <div><strong>Year and Section:</strong> {data.year_section}</div>
+          <div><strong>Course:</strong> {data.course}</div>
+          <div><strong>School Year:</strong> {data.school_year}</div>
+        </div>
 
-          {/* Official TOS Table */}
-          <div className="border-2 border-black">
-            <table className="w-full border-collapse text-xs">
-              <thead>
-                {/* Row 1: Main headers + COGNITIVE DOMAINS spanning 6 cols */}
-                <tr className="bg-muted/40">
-                  <th rowSpan={3} className="border border-black p-2 font-bold text-center align-middle min-w-[160px]">
-                    TOPIC
-                  </th>
-                  <th rowSpan={3} className="border border-black p-2 font-bold text-center align-middle w-16">
-                    NO. OF<br/>HOURS
-                  </th>
-                  <th rowSpan={3} className="border border-black p-2 font-bold text-center align-middle w-16">
-                    PERCENTAGE
-                  </th>
-                  <th colSpan={6} className="border border-black p-2 font-bold text-center">
-                    COGNITIVE DOMAINS
-                  </th>
-                  <th rowSpan={3} className="border border-black p-2 font-bold text-center align-middle w-20">
-                    ITEM<br/>PLACEMENT
-                  </th>
-                  <th rowSpan={3} className="border border-black p-2 font-bold text-center align-middle w-16">
-                    TOTAL
-                  </th>
-                </tr>
-                {/* Row 2: Difficulty groups */}
-                <tr className="bg-muted/40">
-                  <th colSpan={2} className="border border-black p-1 font-bold text-center text-[10px]">EASY (30%)</th>
-                  <th colSpan={2} className="border border-black p-1 font-bold text-center text-[10px]">AVERAGE (40%)</th>
-                  <th colSpan={2} className="border border-black p-1 font-bold text-center text-[10px]">DIFFICULT (30%)</th>
-                </tr>
-                {/* Row 3: Individual bloom levels with percentages */}
-                <tr className="bg-muted/40">
-                  {bloomLevels.map((level) => (
-                    <th key={level.key} className="border border-black p-1 font-bold text-center text-[10px] w-16">
-                      {level.label}<br/>({level.pct})
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.topics.map((topic) => {
-                  const topicName = topic.topic;
-                  const topicDist = distribution[topicName];
-                  const percentage = topicDist?.percentage || 0;
-                  const topicTotal = getTopicTotal(topicName);
+        {/* Official TOS Table */}
+        <table className="w-full border-collapse border-2 border-black text-xs">
+          <thead>
+            {/* Row 1: Main headers + COGNITIVE DOMAINS spanning 6 cols */}
+            <tr className="bg-gray-100">
+              <th rowSpan={3} className="border border-black p-1.5 font-bold text-center align-middle" style={{ width: '20%' }}>
+                TOPIC
+              </th>
+              <th rowSpan={3} className="border border-black p-1.5 font-bold text-center align-middle" style={{ width: '8%' }}>
+                NO. OF<br/>HOURS
+              </th>
+              <th rowSpan={3} className="border border-black p-1.5 font-bold text-center align-middle" style={{ width: '8%' }}>
+                PERCENTAGE
+              </th>
+              <th colSpan={6} className="border border-black p-1.5 font-bold text-center">
+                COGNITIVE DOMAINS
+              </th>
+              <th rowSpan={3} className="border border-black p-1.5 font-bold text-center align-middle" style={{ width: '8%' }}>
+                ITEM<br/>PLACEMENT
+              </th>
+              <th rowSpan={3} className="border border-black p-1.5 font-bold text-center align-middle" style={{ width: '6%' }}>
+                TOTAL
+              </th>
+            </tr>
+            {/* Row 2: Difficulty groups */}
+            <tr className="bg-gray-100">
+              <th colSpan={2} className="border border-black p-1 font-bold text-center text-[10px]">EASY (30%)</th>
+              <th colSpan={2} className="border border-black p-1 font-bold text-center text-[10px]">AVERAGE (40%)</th>
+              <th colSpan={2} className="border border-black p-1 font-bold text-center text-[10px]">DIFFICULT (30%)</th>
+            </tr>
+            {/* Row 3: Individual bloom levels with percentages */}
+            <tr className="bg-gray-100">
+              {bloomLevels.map((level) => (
+                <th key={level.key} className="border border-black p-1 font-bold text-center text-[9px]" style={{ width: `${50 / 6}%` }}>
+                  {level.label}<br/>({level.pct})
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.topics.map((topic) => {
+              const topicName = topic.topic;
+              const topicDist = distribution[topicName];
+              const percentage = topicDist?.percentage || 0;
+              const topicTotal = getTopicTotal(topicName);
 
-                  return (
-                    <tr key={topicName}>
-                      <td className="border border-black p-2 font-medium">{topicName}</td>
-                      <td className="border border-black p-2 text-center">{topic.hours} hours</td>
-                      <td className="border border-black p-2 text-center">{percentage}%</td>
-                      {bloomLevels.map((level) => {
-                        const bloomData = topicDist?.[level.key];
-                        const items = bloomData?.items || [];
-                        const count = bloomData?.count || 0;
-                        return (
-                          <td key={level.key} className="border border-black p-1 text-center text-[10px]">
-                            <div className="font-semibold">{count > 0 ? count : "-"}</div>
-                            {count > 0 && (
-                              <div className="text-[9px] text-muted-foreground">{formatItemNumbers(items)}</div>
-                            )}
-                          </td>
-                        );
-                      })}
-                      <td className="border border-black p-2 text-center text-[10px] font-semibold">
-                        {formatItemPlacement(topicName)}
+              return (
+                <tr key={topicName}>
+                  <td className="border border-black p-1.5 text-left font-medium">{topicName}</td>
+                  <td className="border border-black p-1 text-center">{topic.hours} hours</td>
+                  <td className="border border-black p-1 text-center">{percentage}%</td>
+                  {bloomLevels.map((level) => {
+                    const bloomData = topicDist?.[level.key];
+                    const items = bloomData?.items || [];
+                    const count = bloomData?.count || 0;
+                    return (
+                      <td key={level.key} className="border border-black p-1 text-center text-[10px]">
+                        <div className="font-semibold">{count > 0 ? count : "-"}</div>
+                        {count > 0 && (
+                          <div className="text-[9px] text-gray-600">{formatItemNumbers(items)}</div>
+                        )}
                       </td>
-                      <td className="border border-black p-2 text-center font-bold">{topicTotal}</td>
-                    </tr>
-                  );
-                })}
-
-                {/* Total Row */}
-                <tr className="bg-muted/50 font-bold">
-                  <td className="border border-black p-2 font-bold">TOTAL</td>
-                  <td className="border border-black p-2 text-center">{total_hours}</td>
-                  <td className="border border-black p-2 text-center">100%</td>
-                  {bloomLevels.map((level) => (
-                    <td key={level.key} className="border border-black p-2 text-center font-bold">
-                      {bloom_totals[level.key]}
-                    </td>
-                  ))}
-                  <td className="border border-black p-2 text-center font-bold">1-{data.total_items}</td>
-                  <td className="border border-black p-2 text-center font-bold text-base">{actualTotal}</td>
+                    );
+                  })}
+                  <td className="border border-black p-1 text-center font-semibold">
+                    {formatItemPlacement(topicName)}
+                  </td>
+                  <td className="border border-black p-1 text-center font-bold">{topicTotal}</td>
                 </tr>
-              </tbody>
-            </table>
-          </div>
+              );
+            })}
 
-          {/* Signature Section */}
-          <div className="mt-8 grid grid-cols-2 gap-8 print:mt-6">
-            <div>
-              <p className="mb-12">Prepared by:</p>
-              <div className="border-b border-black w-56 mb-1 mx-auto" />
-              <p className="text-center font-bold">{data.prepared_by || ""}</p>
-            </div>
-            <div>
-              <p className="mb-12">Noted by:</p>
-              <div className="border-b border-black w-56 mb-1 mx-auto" />
-              <p className="text-center font-bold">{data.noted_by || ""}</p>
-            </div>
+            {/* Total Row */}
+            <tr className="bg-gray-100 font-bold">
+              <td className="border border-black p-1.5 font-bold text-left">TOTAL</td>
+              <td className="border border-black p-1 text-center">{total_hours}</td>
+              <td className="border border-black p-1 text-center">100%</td>
+              {bloomLevels.map((level) => (
+                <td key={level.key} className="border border-black p-1 text-center font-bold">
+                  {bloom_totals[level.key]}
+                </td>
+              ))}
+              <td className="border border-black p-1 text-center font-bold">-</td>
+              <td className="border border-black p-1 text-center font-bold text-sm">{actualTotal}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Signature Section */}
+        <div className="tos-signature grid grid-cols-2 gap-8 mt-8">
+          <div>
+            <p className="mb-12">Prepared by:</p>
+            <div className="border-b border-black w-56 mb-1 mx-auto" />
+            <p className="text-center font-bold">{data.prepared_by || ""}</p>
+            {data.prepared_by && <p className="text-center text-xs italic">Teacher</p>}
           </div>
-        </CardContent>
-      </Card>
+          <div>
+            <p className="mb-12">Noted by:</p>
+            <div className="border-b border-black w-56 mb-1 mx-auto" />
+            <p className="text-center font-bold">{data.noted_by || ""}</p>
+            {data.noted_by && <p className="text-center text-xs italic">Dean</p>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
