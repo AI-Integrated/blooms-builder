@@ -351,7 +351,7 @@ function mapQuestionTypeToDb(type: QuestionType): string {
 }
 
 /**
- * Generate questions of a specific type using templates
+ * Generate questions of a specific type using AI edge function, with template fallback
  */
 async function generateTypedQuestions(
   questionType: QuestionType,
@@ -359,8 +359,33 @@ async function generateTypedQuestions(
   count: number,
   userId: string
 ): Promise<any[]> {
+  // Try AI edge function first
+  try {
+    const aiQuestions = await generateTypedQuestionsViaAI(questionType, criteria, count, userId);
+    if (aiQuestions.length >= count) {
+      return aiQuestions.slice(0, count);
+    }
+    // If partial, fill remainder with templates
+    const remaining = count - aiQuestions.length;
+    console.log(`   ⚠️ AI returned ${aiQuestions.length}/${count}, filling ${remaining} with templates`);
+    const templateQuestions = generateTypedQuestionsFromTemplates(questionType, criteria, remaining, userId);
+    return [...aiQuestions, ...templateQuestions];
+  } catch (error) {
+    console.warn(`   ⚠️ AI generation failed, using template fallback:`, error);
+    return generateTypedQuestionsFromTemplates(questionType, criteria, count, userId);
+  }
+}
+
+/**
+ * Generate questions via the AI edge function with proper question_type
+ */
+async function generateTypedQuestionsViaAI(
+  questionType: QuestionType,
+  criteria: TOSCriteria[],
+  count: number,
+  userId: string
+): Promise<any[]> {
   const questions: any[] = [];
-  const letters = ['A', 'B', 'C', 'D'];
   
   // Distribute count across criteria
   const perCriteria = Math.ceil(count / Math.max(criteria.length, 1));
@@ -368,29 +393,130 @@ async function generateTypedQuestions(
   
   for (const criterion of criteria) {
     if (generated >= count) break;
+    const toGenerate = Math.min(perCriteria, count - generated);
     
+    // Map question type for the edge function
+    const edgeQuestionType = questionType === 'fill_blank' ? 'fill_blank' : questionType;
+    
+    const { data, error } = await supabase.functions.invoke('generate-constrained-questions', {
+      body: {
+        topic: criterion.topic,
+        bloom_level: criterion.bloom_level || 'Understanding',
+        knowledge_dimension: criterion.knowledge_dimension || 'conceptual',
+        difficulty: criterion.difficulty || 'Average',
+        count: toGenerate,
+        question_type: edgeQuestionType
+      }
+    });
+    
+    if (error) {
+      console.error(`   ❌ Edge function error for ${questionType}:`, error);
+      continue;
+    }
+    
+    const aiQuestions = data?.questions || [];
+    
+    for (const q of aiQuestions) {
+      if (generated >= count) break;
+      
+      const mapped = mapAIResponseToQuestion(q, questionType, criterion, userId);
+      questions.push(mapped);
+      generated++;
+    }
+  }
+  
+  return questions;
+}
+
+/**
+ * Map AI edge function response to our question format
+ */
+function mapAIResponseToQuestion(
+  aiQ: any,
+  questionType: QuestionType,
+  criterion: TOSCriteria,
+  userId: string
+): any {
+  const base = {
+    id: `gen-${questionType}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    topic: criterion.topic,
+    bloom_level: criterion.bloom_level || aiQ.bloom_level,
+    difficulty: criterion.difficulty || aiQ.difficulty,
+    knowledge_dimension: criterion.knowledge_dimension || aiQ.knowledge_dimension || 'conceptual',
+    created_by: 'ai',
+    status: 'approved',
+    approved: true,
+    owner: userId,
+    ai_confidence_score: 0.85,
+    metadata: { generated_for_section: questionType, ai_generated: true }
+  };
+  
+  switch (questionType) {
+    case 'true_false':
+      return {
+        ...base,
+        question_type: 'true_false',
+        question_text: aiQ.text,
+        choices: { A: 'True', B: 'False' },
+        correct_answer: aiQ.correct_answer === 'True' || aiQ.correct_answer === 'true' ? 'True' : 'False'
+      };
+    case 'fill_blank':
+      return {
+        ...base,
+        question_type: 'short_answer',
+        question_text: aiQ.text,
+        correct_answer: aiQ.correct_answer || 'N/A'
+      };
+    case 'essay':
+      return {
+        ...base,
+        question_type: 'essay',
+        question_text: aiQ.text,
+        correct_answer: aiQ.correct_answer || aiQ.answer || 'See rubric',
+        points: 5,
+        metadata: {
+          ...base.metadata,
+          points: 5,
+          rubric_criteria: aiQ.rubric_points || []
+        }
+      };
+    default: // mcq
+      return {
+        ...base,
+        question_type: 'mcq',
+        question_text: aiQ.text,
+        choices: aiQ.choices || {},
+        correct_answer: aiQ.correct_answer || 'A'
+      };
+  }
+}
+
+/**
+ * Template-based fallback generation (no AI needed)
+ */
+function generateTypedQuestionsFromTemplates(
+  questionType: QuestionType,
+  criteria: TOSCriteria[],
+  count: number,
+  userId: string
+): any[] {
+  const questions: any[] = [];
+  const perCriteria = Math.ceil(count / Math.max(criteria.length, 1));
+  let generated = 0;
+  
+  for (const criterion of criteria) {
+    if (generated >= count) break;
     const toGenerate = Math.min(perCriteria, count - generated);
     
     for (let i = 0; i < toGenerate; i++) {
-      const question = generateTypedQuestion(
-        questionType,
-        criterion,
-        generated + i,
-        userId
-      );
+      const question = generateTypedQuestion(questionType, criterion, generated + i, userId);
       questions.push(question);
       generated++;
     }
   }
   
-  // If we still need more, generate from first criterion
   while (generated < count && criteria.length > 0) {
-    const question = generateTypedQuestion(
-      questionType,
-      criteria[0],
-      generated,
-      userId
-    );
+    const question = generateTypedQuestion(questionType, criteria[0], generated, userId);
     questions.push(question);
     generated++;
   }
