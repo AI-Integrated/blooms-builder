@@ -13,6 +13,8 @@ import {
   scaledFormatSections 
 } from "@/types/examFormats";
 import type { TOSCriteria } from "./testGenerationService";
+import { QuestionUniquenessStore, createQuestionFingerprint, extractConcept } from "./questionUniquenessChecker";
+import type { AnswerType, KnowledgeDimension } from "@/types/knowledge";
 
 export interface FormatAwareTestConfig {
   format: ExamFormat;
@@ -91,6 +93,10 @@ export async function generateFormatAwareTest(
   const answerKey: any[] = [];
   let globalQuestionNumber = 1;
 
+  // Session-level deduplication store — shared across ALL sections
+  const uniquenessStore = new QuestionUniquenessStore();
+  const allQuestionTexts: string[] = []; // For text similarity checks
+
   for (const section of scaledSections) {
     const sectionCriteria = sectionAssignments.get(section.id) || [];
     const sectionItemCount = section.endNumber - section.startNumber + 1;
@@ -108,7 +114,9 @@ export async function generateFormatAwareTest(
       sectionCriteria,
       actualQuestionCount,
       globalQuestionNumber,
-      user.id
+      user.id,
+      uniquenessStore,
+      allQuestionTexts
     );
 
     // Calculate points correctly for essays (essayCount * pointsPerQuestion) vs regular (count * 1)
@@ -290,12 +298,51 @@ function distributeCriteriaToSections(
 /**
  * Generate questions for a specific section with the required question type
  */
+/**
+ * Lightweight text similarity using normalized token overlap (Jaccard-like)
+ */
+function computeTextSimilarity(text1: string, text2: string): number {
+  const tokenize = (t: string) => new Set(
+    t.toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(w => w.length > 2)
+  );
+  const set1 = tokenize(text1);
+  const set2 = tokenize(text2);
+  if (set1.size === 0 || set2.size === 0) return 0;
+  let intersection = 0;
+  for (const token of set1) {
+    if (set2.has(token)) intersection++;
+  }
+  return intersection / Math.max(set1.size, set2.size);
+}
+
+/**
+ * Check if a question text is too similar to any existing question
+ */
+function isDuplicateByText(
+  questionText: string,
+  existingTexts: string[],
+  threshold: number = 0.7
+): boolean {
+  for (const existing of existingTexts) {
+    if (computeTextSimilarity(questionText, existing) >= threshold) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Generate questions for a specific section with the required question type
+ * Now enforces cross-section deduplication via uniquenessStore and text similarity
+ */
 async function generateSectionQuestions(
   section: ExamSection,
   criteria: TOSCriteria[],
   targetCount: number,
   startNumber: number,
-  userId: string
+  userId: string,
+  uniquenessStore: QuestionUniquenessStore,
+  allQuestionTexts: string[]
 ): Promise<any[]> {
   const questions: any[] = [];
   
@@ -311,14 +358,23 @@ async function generateSectionQuestions(
       .eq('question_type', dbQuestionType)
       .ilike('topic', `%${criterion.topic}%`)
       .order('used_count', { ascending: true })
-      .limit(criterion.count);
+      .limit(criterion.count * 3); // Fetch extra for dedup filtering
     
     if (bankQuestions && bankQuestions.length > 0) {
-      questions.push(...bankQuestions.slice(0, criterion.count));
+      for (const bq of bankQuestions) {
+        if (questions.length >= targetCount) break;
+        // Skip if text is too similar to already-selected questions
+        if (isDuplicateByText(bq.question_text, allQuestionTexts)) {
+          console.log(`   🔄 Skipping duplicate bank question: "${bq.question_text.substring(0, 60)}..."`);
+          continue;
+        }
+        questions.push(bq);
+        allQuestionTexts.push(bq.question_text);
+      }
     }
   }
   
-  // If we don't have enough, generate the rest
+  // If we don't have enough, generate the rest with dedup enforcement
   const remaining = targetCount - questions.length;
   if (remaining > 0) {
     console.log(`   🤖 Generating ${remaining} ${section.questionType} questions via AI...`);
@@ -327,7 +383,9 @@ async function generateSectionQuestions(
       section.questionType,
       criteria,
       remaining,
-      userId
+      userId,
+      uniquenessStore,
+      allQuestionTexts
     );
     
     questions.push(...generatedQuestions);
@@ -352,28 +410,97 @@ function mapQuestionTypeToDb(type: QuestionType): string {
 
 /**
  * Generate questions of a specific type using AI edge function, with template fallback
+ * Enforces deduplication: rejects near-duplicate AI outputs and retries
  */
 async function generateTypedQuestions(
   questionType: QuestionType,
   criteria: TOSCriteria[],
   count: number,
-  userId: string
+  userId: string,
+  uniquenessStore: QuestionUniquenessStore,
+  allQuestionTexts: string[]
 ): Promise<any[]> {
-  // Try AI edge function first
-  try {
-    const aiQuestions = await generateTypedQuestionsViaAI(questionType, criteria, count, userId);
-    if (aiQuestions.length >= count) {
-      return aiQuestions.slice(0, count);
+  const MAX_RETRIES = 2;
+  let attempt = 0;
+  const accepted: any[] = [];
+
+  while (accepted.length < count && attempt <= MAX_RETRIES) {
+    attempt++;
+    const needed = count - accepted.length;
+
+    try {
+      const aiQuestions = await generateTypedQuestionsViaAI(questionType, criteria, needed, userId);
+
+      for (const q of aiQuestions) {
+        if (accepted.length >= count) break;
+        const qText = q.question_text || q.text || '';
+
+        // Check text similarity against all existing questions
+        if (isDuplicateByText(qText, allQuestionTexts)) {
+          console.log(`   🔄 Rejected duplicate AI question (attempt ${attempt}): "${qText.substring(0, 60)}..."`);
+          continue;
+        }
+
+        // Check structural uniqueness via fingerprint store
+        const bloomForAnswer = mapBloomToAnswerType(q.bloom_level || criteria[0]?.bloom_level || 'Understanding');
+        const fp = createQuestionFingerprint(
+          qText,
+          q.topic || criteria[0]?.topic || '',
+          bloomForAnswer as AnswerType,
+          q.bloom_level || criteria[0]?.bloom_level || 'Understanding',
+          (q.knowledge_dimension || criteria[0]?.knowledge_dimension || 'conceptual') as KnowledgeDimension
+        );
+        const uniqueCheck = uniquenessStore.checkWithSuggestions(fp);
+        if (!uniqueCheck.unique) {
+          console.log(`   🔄 Rejected structurally redundant AI question: ${uniqueCheck.reason}`);
+          continue;
+        }
+
+        // Passed all checks — accept
+        uniquenessStore.register(fp);
+        allQuestionTexts.push(qText);
+        accepted.push(q);
+      }
+
+      if (accepted.length >= count) break;
+      console.log(`   ⚠️ After AI attempt ${attempt}: ${accepted.length}/${count} unique questions accepted`);
+    } catch (error) {
+      console.error(`   ❌ AI generation attempt ${attempt} failed:`, error);
+      break; // Don't retry on hard errors
     }
-    // If partial, fill remainder with templates
-    const remaining = count - aiQuestions.length;
-    console.log(`   ⚠️ AI returned ${aiQuestions.length}/${count}, filling ${remaining} with templates`);
-    const templateQuestions = generateTypedQuestionsFromTemplates(questionType, criteria, remaining, userId);
-    return [...aiQuestions, ...templateQuestions];
-  } catch (error) {
-    console.warn(`   ⚠️ AI generation failed, using template fallback:`, error);
-    return generateTypedQuestionsFromTemplates(questionType, criteria, count, userId);
   }
+
+  // Only use template fallback if AI couldn't produce enough, with dedup
+  if (accepted.length < count) {
+    const remaining = count - accepted.length;
+    console.warn(`   ⚠️ AI produced ${accepted.length}/${count} unique questions after ${attempt} attempts. Filling ${remaining} with templates (deduplicated).`);
+    const templateQuestions = generateTypedQuestionsFromTemplates(questionType, criteria, remaining * 3, userId);
+
+    for (const tq of templateQuestions) {
+      if (accepted.length >= count) break;
+      const tText = tq.question_text || '';
+      if (isDuplicateByText(tText, allQuestionTexts)) continue;
+      allQuestionTexts.push(tText);
+      accepted.push(tq);
+    }
+  }
+
+  return accepted.slice(0, count);
+}
+
+/**
+ * Map bloom level to a default answer type for fingerprinting
+ */
+function mapBloomToAnswerType(bloomLevel: string): string {
+  const map: Record<string, string> = {
+    'Remembering': 'definition',
+    'Understanding': 'explanation',
+    'Applying': 'application',
+    'Analyzing': 'analysis',
+    'Evaluating': 'evaluation',
+    'Creating': 'design'
+  };
+  return map[bloomLevel] || 'explanation';
 }
 
 /**
