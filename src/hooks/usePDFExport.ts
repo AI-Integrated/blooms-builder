@@ -301,10 +301,20 @@ export const usePDFExport = () => {
       pdf.line(margin, yPosition, pageWidth - margin, yPosition);
       yPosition += lineHeight * 1.5;
 
-      // Build answer key data
-      const answerKeyData: { num: number; answer: string }[] = [];
+      // Build answer key data - separate grid items from essay items
+      const gridAnswerKeyData: { num: number; answer: string }[] = [];
+      const essayAnswerKeyData: { num: number; answer: string; points: number }[] = [];
       questionNumber = 1;
-      for (const section of [grouped.mcq, grouped.true_false, grouped.short_answer, grouped.essay, grouped.other]) {
+      
+      // Track section start numbers for essay range display
+      const sectionStarts: Record<string, number> = {};
+      let runningNum = 1;
+      for (const [key, section] of Object.entries({ mcq: grouped.mcq, true_false: grouped.true_false, short_answer: grouped.short_answer, essay: grouped.essay, other: grouped.other })) {
+        sectionStarts[key] = runningNum;
+        runningNum += section.length;
+      }
+
+      for (const section of [grouped.mcq, grouped.true_false, grouped.short_answer, grouped.other]) {
         for (const question of section) {
           const correctAnswer = question.correct_answer ?? question.correctAnswer ?? '';
           const questionType = (question.question_type || question.type || '').toLowerCase();
@@ -319,55 +329,105 @@ export const usePDFExport = () => {
               answer = String(correctAnswer).substring(0, 20);
             }
           } else if (questionType === 'true_false' || questionType === 'true-false' || questionType === 'truefalse') {
-            answer = String(correctAnswer).toLowerCase() === 'true' ? 'T' : 'F';
+            const val = String(correctAnswer).toLowerCase();
+            answer = (val === 'true' || val === 't') ? 'T' : 'F';
           } else if (correctAnswer) {
-            answer = String(correctAnswer).substring(0, 20) + (String(correctAnswer).length > 20 ? '...' : '');
+            answer = String(correctAnswer);
           } else {
-            answer = 'Rubric';
+            answer = 'See rubric';
           }
           
-          answerKeyData.push({ num: questionNumber, answer });
+          gridAnswerKeyData.push({ num: questionNumber, answer });
           questionNumber++;
         }
       }
 
-      // Render in multi-column grid layout (4 columns for compact display)
-      pdf.setFontSize(10);
-      pdf.setFont('times', 'normal');
-      
-      const columns = 4;
-      const columnWidth = (pageWidth - margin * 2) / columns;
-      const itemHeight = 5;
-      const itemsPerColumn = Math.ceil((pageHeight - yPosition - 30) / itemHeight);
-      const maxItemsPerPage = itemsPerColumn * columns;
-      
-      let currentItem = 0;
-      const startY = yPosition;
-      
-      while (currentItem < answerKeyData.length) {
-        // Check if we need a new page
-        if (currentItem > 0 && currentItem % maxItemsPerPage === 0) {
-          pdf.addPage();
-          yPosition = margin + lineHeight;
+      // Essay answers - full text, not truncated
+      for (const question of grouped.essay) {
+        const correctAnswer = question.correct_answer ?? question.correctAnswer ?? '';
+        const answer = correctAnswer ? String(correctAnswer) : 'Answers may vary. See rubric.';
+        essayAnswerKeyData.push({ num: questionNumber, answer, points: question.points || 5 });
+        questionNumber++;
+      }
+
+      // Render grid items in multi-column layout (4 columns)
+      if (gridAnswerKeyData.length > 0) {
+        pdf.setFontSize(10);
+        pdf.setFont('times', 'normal');
+        
+        const columns = 4;
+        const columnWidth = (pageWidth - margin * 2) / columns;
+        const itemHeight = 5;
+        const itemsPerColumn = Math.ceil((pageHeight - yPosition - 30) / itemHeight);
+        const maxItemsPerPage = itemsPerColumn * columns;
+        
+        let currentItem = 0;
+        const startY = yPosition;
+        
+        while (currentItem < gridAnswerKeyData.length) {
+          if (currentItem > 0 && currentItem % maxItemsPerPage === 0) {
+            pdf.addPage();
+            yPosition = margin + lineHeight;
+          }
+          
+          const pageStartItem = Math.floor(currentItem / maxItemsPerPage) * maxItemsPerPage;
+          const itemInPage = currentItem - pageStartItem;
+          const col = Math.floor(itemInPage / itemsPerColumn);
+          const row = itemInPage % itemsPerColumn;
+          
+          const x = margin + col * columnWidth;
+          const y = (currentItem >= maxItemsPerPage ? margin + lineHeight : startY) + row * itemHeight;
+          
+          const item = gridAnswerKeyData[currentItem];
+          pdf.text(`${item.num}.`, x + 8, y, { align: 'right' });
+          pdf.text(item.answer, x + 10, y);
+          
+          currentItem++;
         }
         
-        const pageStartItem = Math.floor(currentItem / maxItemsPerPage) * maxItemsPerPage;
-        const itemInPage = currentItem - pageStartItem;
-        const col = Math.floor(itemInPage / itemsPerColumn);
-        const row = itemInPage % itemsPerColumn;
+        // Update yPosition after grid
+        const totalGridRows = Math.min(gridAnswerKeyData.length, itemsPerColumn);
+        yPosition = startY + totalGridRows * itemHeight + lineHeight;
+      }
+
+      // Render essay answers as full-text blocks
+      if (essayAnswerKeyData.length > 0) {
+        if (yPosition > pageHeight - 60) {
+          pdf.addPage();
+          yPosition = margin;
+        }
         
-        const x = margin + col * columnWidth;
-        const y = (currentItem >= maxItemsPerPage ? margin + lineHeight : startY) + row * itemHeight;
+        yPosition += lineHeight;
+        pdf.setFontSize(11);
+        pdf.setFont('times', 'bold');
+        pdf.text('Essay (Sample Answers)', margin, yPosition);
+        yPosition += lineHeight * 1.5;
         
-        const item = answerKeyData[currentItem];
-        const numText = `${item.num}.`;
-        const answerText = item.answer;
-        
-        // Right-align the number and left-align answer
-        pdf.text(numText, x + 8, y, { align: 'right' });
-        pdf.text(answerText, x + 10, y);
-        
-        currentItem++;
+        for (const essayItem of essayAnswerKeyData) {
+          if (yPosition > pageHeight - 40) {
+            pdf.addPage();
+            yPosition = margin;
+          }
+          
+          // Essay number label
+          pdf.setFontSize(10);
+          pdf.setFont('times', 'bold');
+          pdf.text(`${essayItem.num}.`, margin, yPosition);
+          yPosition += lineHeight;
+          
+          // Full essay answer text - wrapped
+          pdf.setFont('times', 'normal');
+          const wrappedLines = pdf.splitTextToSize(essayItem.answer, pageWidth - margin * 2 - 10);
+          for (const line of wrappedLines) {
+            if (yPosition > pageHeight - 15) {
+              pdf.addPage();
+              yPosition = margin;
+            }
+            pdf.text(line, margin + 8, yPosition);
+            yPosition += lineHeight;
+          }
+          yPosition += lineHeight * 0.5;
+        }
       }
 
       // Add watermarks if version label and test ID are provided
