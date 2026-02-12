@@ -406,14 +406,34 @@ function QuestionSection({
 }
 
 function AnswerKeySection({ title, items, startNumber, isEssaySection = false }: { title: string; items: TestItem[]; startNumber: number; isEssaySection?: boolean }) {
+  if (isEssaySection) {
+    return (
+      <div>
+        <h3 className="font-semibold mb-2">{title}</h3>
+        <div className="space-y-4">
+          {items.map((item, index) => {
+            const displayNum = getEssayDisplayNumber(index, items, startNumber);
+            const answer = formatAnswer(item);
+            return (
+              <div key={index} className="p-3 bg-muted rounded">
+                <div className="font-semibold mb-1">{displayNum}.</div>
+                <div className="text-sm text-primary whitespace-pre-wrap leading-relaxed ml-4">
+                  {answer}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h3 className="font-semibold mb-2">{title}</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
         {items.map((item, index) => {
-          const displayNum = isEssaySection 
-            ? getEssayDisplayNumber(index, items, startNumber)
-            : `${startNumber + index}`;
+          const displayNum = `${startNumber + index}`;
           return (
             <div key={index} className="flex items-center gap-2 p-2 bg-muted rounded text-sm">
               <span className="font-semibold">{displayNum}.</span>

@@ -139,10 +139,10 @@ All colors MUST be HSL.
    PRINT STYLESHEET - Academic Exam Format
    ======================================== */
 @media print {
-  /* Page setup - default for exams */
+  /* Page setup - A4, 1 inch margins (academic standard) */
   @page {
-    size: letter;
-    margin: 0.75in 1in;
+    size: A4;
+    margin: 1in;
   }
 
   /* Landscape page for TOS matrix */
@@ -231,7 +231,7 @@ All colors MUST be HSL.
     font-family: "Times New Roman", Times, serif !important;
     font-size: 12pt !important;
     line-height: 1.5 !important;
-    text-align: justify !important;
+    text-align: left !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -241,7 +241,7 @@ All colors MUST be HSL.
     font-family: "Times New Roman", Times, serif !important;
     font-size: 12pt !important;
     line-height: 1.5 !important;
-    text-align: justify !important;
+    text-align: left !important;
   }
 
   /* Controlled margins for headings/paragraphs in print */
@@ -297,7 +297,7 @@ All colors MUST be HSL.
   }
 
   .print-exam-only .exam-title {
-    font-size: 16pt !important;
+    font-size: 14pt !important;
     font-weight: bold !important;
     margin: 4pt 0 !important;
   }
@@ -373,7 +373,7 @@ All colors MUST be HSL.
   .print-exam-only .general-instructions p {
     font-size: 11pt !important;
     margin: 0 !important;
-    text-align: justify !important;
+    text-align: left !important;
   }
 
   /* Section Headers */
@@ -414,13 +414,13 @@ All colors MUST be HSL.
     font-size: 10pt !important;
     font-style: italic !important;
     margin-top: 2pt !important;
-    text-align: justify !important;
+    text-align: left !important;
     clear: both !important;
   }
 
-  /* Question Items */
+  /* Question Items - single spaced within, one blank line between */
   .print-exam-only .exam-question {
-    margin-bottom: 10pt !important;
+    margin-bottom: 12pt !important;
     page-break-inside: avoid !important;
   }
 
@@ -431,7 +431,7 @@ All colors MUST be HSL.
   }
 
   .print-exam-only .question-text {
-    text-align: justify !important;
+    text-align: left !important;
     margin-left: 20pt !important;
     margin-bottom: 6pt !important;
   }
@@ -535,6 +535,43 @@ All colors MUST be HSL.
   .print-exam-only .key-answer {
     font-weight: bold !important;
     color: #000 !important;
+  }
+
+  /* Essay answer key - full paragraph display */
+  .print-exam-only .answer-key-essay-list {
+    margin-top: 8pt !important;
+  }
+
+  .print-exam-only .answer-key-essay-item {
+    margin-bottom: 12pt !important;
+    page-break-inside: avoid !important;
+  }
+
+  .print-exam-only .key-essay-answer {
+    font-size: 11pt !important;
+    line-height: 1.6 !important;
+    text-align: left !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+  }
+
+
+  /* Short answer: 3-4 blank lines */
+  .print-exam-only .short-answer-lines {
+    margin-top: 6pt !important;
+  }
+
+  /* Headings: 14pt bold centered */
+  .print-exam-only .exam-header .exam-title {
+    font-size: 14pt !important;
+    font-weight: bold !important;
+    text-align: center !important;
+  }
+
+  .print-exam-only .exam-header .institution-name {
+    font-size: 14pt !important;
+    font-weight: bold !important;
+    text-align: center !important;
   }
 
   /* Page breaks */

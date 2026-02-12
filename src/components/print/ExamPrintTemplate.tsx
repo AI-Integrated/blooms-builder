@@ -264,10 +264,13 @@ export function ExamPrintTemplate({ test, showAnswerKey = false }: ExamPrintTemp
                   essayStart,
                   items.length
                 );
+                const essayAnswer = String(item.correct_answer ?? item.correctAnswer ?? 'Answers may vary');
                 return (
-                  <div key={index} style={{ marginBottom: '12pt' }}>
-                    <span style={{ fontWeight: 'bold' }}>{essayDisplayNum}. </span>
-                    <span>{item.correct_answer ?? item.correctAnswer ?? 'Answers may vary'}</span>
+                  <div key={index} className="answer-key-essay-item" style={{ marginBottom: '16pt', pageBreakInside: 'avoid' }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '4pt' }}>{essayDisplayNum}.</div>
+                    <div style={{ marginLeft: '24pt', textAlign: 'left', lineHeight: '1.6', whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>
+                      {essayAnswer}
+                    </div>
                   </div>
                 );
               })}
@@ -312,7 +315,7 @@ function MCQQuestion({ item, number, showAnswer }: { item: TestItem; number: num
           {showAnswer ? correctAnswer : ''}
         </span>
         <span className="question-number">{number}.</span>
-        <span style={{ marginLeft: '6pt', textAlign: 'justify' }}>{questionText}</span>
+        <span style={{ marginLeft: '6pt', textAlign: 'left' }}>{questionText}</span>
       </div>
       <div className="mcq-options">
         {options.map((option) => (
@@ -347,7 +350,7 @@ function SecondaryQuestion({
           {showAnswer ? String(correctAnswer) : ''}
         </span>
         <span className="question-number">{number}.</span>
-        <span style={{ marginLeft: '6pt', textAlign: 'justify', flex: 1 }}>{questionText}</span>
+        <span style={{ marginLeft: '6pt', textAlign: 'left', flex: 1 }}>{questionText}</span>
       </div>
     </div>
   );
@@ -383,7 +386,7 @@ function EssayQuestion({ item, displayNumber, showAnswer }: { item: TestItem; di
     <div className="exam-question" style={{ marginBottom: '24pt' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: '12pt' }}>
         <span className="question-number">{displayNumber}.</span>
-        <span style={{ marginLeft: '6pt', textAlign: 'justify', flex: 1 }}>{questionText}</span>
+        <span style={{ marginLeft: '6pt', textAlign: 'left', flex: 1 }}>{questionText}</span>
         <span style={{ fontSize: '10pt', whiteSpace: 'nowrap', marginLeft: '12pt' }}>
           ({points} {points === 1 ? 'point' : 'points'})
         </span>
@@ -405,19 +408,27 @@ function EssayQuestion({ item, displayNumber, showAnswer }: { item: TestItem; di
 }
 
 function AnswerKeyGrid({ title, items, startNumber }: { title: string; items: TestItem[]; startNumber: number }) {
+  // Format T/F answers consistently
+  const formatGridAnswer = (item: TestItem): string => {
+    const answer = item.correct_answer ?? item.correctAnswer ?? '—';
+    const type = (item.question_type || item.type || '').toLowerCase();
+    if (type === 'true_false' || type === 'true-false' || type === 'truefalse') {
+      const val = String(answer).toLowerCase();
+      return (val === 'true' || val === 't') ? 'T' : 'F';
+    }
+    return String(answer);
+  };
+
   return (
     <div style={{ marginBottom: '18pt' }}>
       <h3 style={{ fontSize: '11pt', fontWeight: 'bold', marginBottom: '8pt' }}>{title}</h3>
       <div className="answer-key-grid">
-        {items.map((item, index) => {
-          const answer = item.correct_answer ?? item.correctAnswer ?? '—';
-          return (
-            <div key={index} className="answer-key-item">
-              <span className="key-number">{startNumber + index}.</span>
-              <span className="key-answer">{String(answer)}</span>
-            </div>
-          );
-        })}
+        {items.map((item, index) => (
+          <div key={index} className="answer-key-item">
+            <span className="key-number">{startNumber + index}.</span>
+            <span className="key-answer">{formatGridAnswer(item)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -261,23 +261,39 @@ export function ExamPrintView({ test, showAnswerKey = true }: ExamPrintViewProps
             {test.title} {test.version_label && `- Version ${test.version_label}`}
           </p>
           
-          {sectionedQuestions.map((section) => (
-            <div key={section.id} className="answer-key-subsection">
-              <h4 style={{ fontSize: '10pt', marginBottom: '6pt', fontWeight: 'bold' }}>
-                {section.label}: {section.title}
-              </h4>
-              <div className="answer-key-grid">
-                {answerKeyData
-                  .filter(item => item.section === section.id)
-                  .map((item, idx) => (
-                    <div key={`${section.id}-${idx}`} className="answer-key-item">
-                      <span className="key-number">{item.displayNum}.</span>
-                      <span className="key-answer">{item.answer}</span>
-                    </div>
-                  ))}
+          {sectionedQuestions.map((section) => {
+            const sectionItems = answerKeyData.filter(item => item.section === section.id);
+            const hasEssayItems = sectionItems.some(item => item.type === 'essay');
+            
+            return (
+              <div key={section.id} className="answer-key-subsection">
+                <h4 style={{ fontSize: '10pt', marginBottom: '6pt', fontWeight: 'bold' }}>
+                  {section.label}: {section.title}
+                </h4>
+                {hasEssayItems ? (
+                  <div className="answer-key-essay-list">
+                    {sectionItems.map((item, idx) => (
+                      <div key={`${section.id}-${idx}`} className="answer-key-essay-item">
+                        <div style={{ fontWeight: 'bold', marginBottom: '2pt' }}>{item.displayNum}.</div>
+                        <div className="key-essay-answer" style={{ marginLeft: '24pt', marginBottom: '12pt', lineHeight: '1.6', whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>
+                          {item.answer}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="answer-key-grid">
+                    {sectionItems.map((item, idx) => (
+                      <div key={`${section.id}-${idx}`} className="answer-key-item">
+                        <span className="key-number">{item.displayNum}.</span>
+                        <span className="key-answer">{item.answer}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -434,9 +450,11 @@ function buildAnswerKey(sections: SectionGroup[]): { num: number; displayNum: st
           answer = String(correctAnswer || '').substring(0, 20);
         }
       } else if (qType === 'true_false') {
-        answer = String(correctAnswer || '').toLowerCase() === 'true' ? 'True' : 'False';
+        const val = String(correctAnswer || '').toLowerCase();
+        answer = (val === 'true' || val === 't') ? 'T' : 'F';
       } else if (correctAnswer) {
-        answer = String(correctAnswer).substring(0, 30) + (String(correctAnswer).length > 30 ? '...' : '');
+        // Do NOT truncate essay/short answers - display full text
+        answer = String(correctAnswer);
       } else {
         answer = 'See rubric';
       }
