@@ -14,9 +14,10 @@ export interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, fullName: string, college?: string) => Promise<{ error: any }>;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -79,19 +80,29 @@ export const useAuthState = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  const signUp = async (email: string, password: string, fullName: string, college?: string) => {
     const redirectUrl = `${window.location.origin}/`;
     
-    const { error } = await supabase.auth.signUp({
+    const { error, data } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: redirectUrl,
         data: {
-          full_name: fullName
+          full_name: fullName,
+          college: college || ''
         }
       }
     });
+
+    // Update college in profile if provided
+    if (!error && data?.user && college) {
+      await supabase
+        .from('profiles')
+        .update({ college })
+        .eq('id', data.user.id);
+    }
+
     return { error };
   };
 
@@ -107,6 +118,23 @@ export const useAuthState = () => {
     await supabase.auth.signOut();
   };
 
+  const refreshProfile = async () => {
+    const currentUser = user || (await supabase.auth.getUser()).data.user;
+    if (!currentUser) return;
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('id', currentUser.id)
+      .single();
+    if (data) {
+      setProfile({
+        ...data,
+        role: profile?.role || 'teacher',
+        created_at: profile?.created_at || new Date().toISOString()
+      });
+    }
+  };
+
   return {
     user,
     session,
@@ -114,6 +142,7 @@ export const useAuthState = () => {
     loading,
     signUp,
     signIn,
-    signOut
+    signOut,
+    refreshProfile
   };
 };

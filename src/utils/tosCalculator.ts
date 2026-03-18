@@ -46,6 +46,7 @@ export interface TOSInput {
   school_year: string;
   total_items: number;
   prepared_by: string;
+  checked_by?: string;
   noted_by: string;
   topics: TopicInput[];
 }
@@ -78,6 +79,7 @@ export interface CanonicalTOSMatrix {
   exam_period: string;
   school_year: string;
   prepared_by: string;
+  checked_by: string;
   noted_by: string;
   created_at: string;
   
@@ -303,6 +305,7 @@ export function calculateCanonicalTOSMatrix(input: TOSInput): CanonicalTOSMatrix
     exam_period: input.exam_period,
     school_year: input.school_year,
     prepared_by: input.prepared_by || 'Teacher',
+    checked_by: input.checked_by || '',
     noted_by: input.noted_by || 'Dean',
     created_at: new Date().toISOString(),
     total_items,
