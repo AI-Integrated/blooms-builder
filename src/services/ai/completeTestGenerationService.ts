@@ -317,10 +317,20 @@ async function saveAIQuestionsToBank(
   userId: string,
   tosId: string
 ): Promise<any[]> {
+  const { resolveSubjectMetadata } = await import('./subjectMetadataResolver');
   const savedQuestions: any[] = [];
 
   for (const q of questions) {
     try {
+      const subjectMeta = resolveSubjectMetadata({
+        subject: q.subject,
+        topic: q.topic,
+        subject_code: q.subject_code,
+        subject_description: q.subject_description,
+        category: q.category,
+        specialization: q.specialization,
+      });
+
       const { data: saved, error: insertError } = await supabase
         .from('questions')
         .insert({
@@ -332,6 +342,10 @@ async function saveAIQuestionsToBank(
           bloom_level: q.bloom_level,
           difficulty: q.difficulty,
           knowledge_dimension: 'conceptual',
+          category: subjectMeta.category,
+          specialization: subjectMeta.specialization,
+          subject_code: subjectMeta.subject_code,
+          subject_description: subjectMeta.subject_description,
           created_by: 'ai',
           approved: true,
           status: 'approved',

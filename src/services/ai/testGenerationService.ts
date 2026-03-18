@@ -398,23 +398,39 @@ async function generateQuestionsWithAI(
   console.log(`   💾 Saving ${questionsToSave.length} AI-generated questions to database...`);
 
   // Store AI-generated questions into the question bank for reuse
-  const questionsToInsert = questionsToSave.map((q: any) => ({
-    question_text: q.question_text,
-    question_type: q.question_type,
-    choices: q.choices,
-    correct_answer: q.correct_answer,
-    topic: q.topic,
-    bloom_level: q.bloom_level,
-    difficulty: q.difficulty,
-    knowledge_dimension: q.knowledge_dimension,
-    created_by: 'ai',
-    status: 'approved',
-    approved: true,
-    owner: userId,
-    ai_confidence_score: q.ai_confidence_score || 0.6,
-    needs_review: false,
-    metadata: q.metadata || {}
-  }));
+  const { resolveSubjectMetadata } = await import('./subjectMetadataResolver');
+  const questionsToInsert = questionsToSave.map((q: any) => {
+    const subjectMeta = resolveSubjectMetadata({
+      subject: q.subject,
+      topic: q.topic,
+      subject_code: q.subject_code,
+      subject_description: q.subject_description,
+      category: q.category,
+      specialization: q.specialization,
+    });
+
+    return {
+      question_text: q.question_text,
+      question_type: q.question_type,
+      choices: q.choices,
+      correct_answer: q.correct_answer,
+      topic: q.topic,
+      bloom_level: q.bloom_level,
+      difficulty: q.difficulty,
+      knowledge_dimension: q.knowledge_dimension,
+      category: subjectMeta.category,
+      specialization: subjectMeta.specialization,
+      subject_code: subjectMeta.subject_code,
+      subject_description: subjectMeta.subject_description,
+      created_by: 'ai',
+      status: 'approved',
+      approved: true,
+      owner: userId,
+      ai_confidence_score: q.ai_confidence_score || 0.6,
+      needs_review: false,
+      metadata: q.metadata || {}
+    };
+  });
 
   console.log(`   📝 Insert payload sample:`, {
     count: questionsToInsert.length,

@@ -11,6 +11,7 @@ export interface TOSEntry {
   school_year: string;
   total_items: number;
   prepared_by: string;
+  checked_by?: string;
   noted_by: string;
   created_by?: string;
   owner?: string;

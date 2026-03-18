@@ -15,6 +15,7 @@ import {
 import type { TOSCriteria } from "./testGenerationService";
 import { QuestionUniquenessStore, createQuestionFingerprint, extractConcept } from "./questionUniquenessChecker";
 import type { AnswerType, KnowledgeDimension } from "@/types/knowledge";
+import { resolveSubjectMetadata } from "./subjectMetadataResolver";
 
 export interface FormatAwareTestConfig {
   format: ExamFormat;
@@ -388,11 +389,125 @@ async function generateSectionQuestions(
       allQuestionTexts
     );
     
-    questions.push(...generatedQuestions);
+    // Save AI-generated questions to the Question Bank for future reuse
+    const savedQuestions = await saveGeneratedQuestionsToBank(generatedQuestions, userId, criteria);
+    questions.push(...savedQuestions);
   }
   
   // Ensure we have exactly the target count
   return questions.slice(0, targetCount);
+}
+
+/**
+ * Save AI-generated questions to the Question Bank with full metadata and dedup.
+ * Returns the saved questions (with real DB IDs).
+ */
+async function saveGeneratedQuestionsToBank(
+  questions: any[],
+  userId: string,
+  criteria: TOSCriteria[]
+): Promise<any[]> {
+  const saved: any[] = [];
+
+  for (const q of questions) {
+    try {
+      const qText = q.question_text || '';
+
+      // DB-level duplicate check: skip if near-identical text already exists
+      const { data: existing } = await supabase
+        .from('questions')
+        .select('id, question_text')
+        .eq('deleted', false)
+        .eq('topic', q.topic || criteria[0]?.topic || '')
+        .eq('bloom_level', q.bloom_level || criteria[0]?.bloom_level || '')
+        .eq('question_type', q.question_type || 'mcq')
+        .limit(50);
+
+      if (existing && existing.some(e => computeTextSimilarity(e.question_text, qText) >= 0.7)) {
+        console.log(`   🔄 DB dedup: skipping existing question: "${qText.substring(0, 60)}..."`);
+        saved.push(q); // Still use it for this test, just don't re-save
+        continue;
+      }
+
+      // Resolve hierarchical metadata
+      const subjectMeta = resolveSubjectMetadata({
+        subject: q.subject,
+        topic: q.topic || criteria[0]?.topic,
+        subject_code: q.subject_code,
+        subject_description: q.subject_description,
+        category: q.category,
+        specialization: q.specialization,
+      });
+
+      // Align to existing subject records to prevent duplicates
+      if (subjectMeta.subject_description) {
+        const { data: existingSubject } = await supabase
+          .from('questions')
+          .select('subject_code, category, specialization')
+          .eq('subject_description', subjectMeta.subject_description)
+          .eq('deleted', false)
+          .limit(1)
+          .maybeSingle();
+
+        if (existingSubject) {
+          if (existingSubject.subject_code) subjectMeta.subject_code = existingSubject.subject_code;
+          if (existingSubject.category) subjectMeta.category = existingSubject.category;
+          if (existingSubject.specialization) subjectMeta.specialization = existingSubject.specialization;
+        }
+      }
+
+      const { data: dbQuestion, error } = await supabase
+        .from('questions')
+        .insert({
+          question_text: qText,
+          question_type: q.question_type || 'mcq',
+          choices: q.choices || null,
+          correct_answer: q.correct_answer || null,
+          topic: q.topic || criteria[0]?.topic || '',
+          bloom_level: q.bloom_level || criteria[0]?.bloom_level || 'Understanding',
+          difficulty: q.difficulty || criteria[0]?.difficulty || 'Average',
+          knowledge_dimension: q.knowledge_dimension || 'conceptual',
+          category: subjectMeta.category,
+          specialization: subjectMeta.specialization,
+          subject_code: subjectMeta.subject_code,
+          subject_description: subjectMeta.subject_description,
+          created_by: 'ai',
+          approved: true,
+          status: 'approved',
+          owner: userId,
+          ai_confidence_score: q.ai_confidence_score || 0.75,
+          needs_review: false,
+          metadata: { ...(q.metadata || {}), auto_generated: true, saved_to_bank: true }
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('   ❌ Failed to save AI question to bank:', error.message);
+        saved.push(q); // Still use the unsaved question for this test
+        continue;
+      }
+
+      // Log generation
+      await supabase.from('ai_generation_logs').insert({
+        question_id: dbQuestion.id,
+        generation_type: 'format_aware_generation',
+        prompt_used: `Generate ${q.bloom_level} ${q.question_type} on ${q.topic}`,
+        model_used: q.metadata?.generated_for_section ? 'ai_edge_function' : 'template_fallback',
+        generated_by: userId,
+        metadata: { question_type: q.question_type, auto_generated: true }
+      });
+
+      console.log(`   ✅ Saved AI question to bank: ${dbQuestion.id}`);
+      saved.push(dbQuestion);
+    } catch (err) {
+      console.error('   ❌ Error saving question to bank:', err);
+      saved.push(q);
+    }
+  }
+
+  console.log(`   📦 Saved ${saved.filter(s => s.id && !s.id.startsWith('gen-')).length}/${questions.length} AI questions to Question Bank`);
+  return saved;
 }
 
 /**

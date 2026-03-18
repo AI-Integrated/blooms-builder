@@ -4,6 +4,7 @@ import { generateQuestions } from "./generate";
 import type { BloomLevel, Difficulty } from "./classify";
 import { QuestionUniquenessStore, createQuestionFingerprint } from "./questionUniquenessChecker";
 import type { AnswerType, KnowledgeDimension } from "@/types/knowledge";
+import { resolveSubjectMetadata } from "./subjectMetadataResolver";
 
 export interface TOSRequirement {
   topic: string;
@@ -341,6 +342,39 @@ export class CompleteTestGenerator {
 
     for (const q of questions) {
       try {
+        // Resolve category/specialization/subject metadata
+        const subjectMeta = resolveSubjectMetadata({
+          subject: q.subject,
+          topic: q.topic,
+          subject_code: q.subject_code,
+          subject_description: q.subject_description,
+          category: q.category,
+          specialization: q.specialization,
+        });
+
+        // DB-level dedup: check if a question with matching subject_description exists
+        // If so, align subject_code to the existing record to prevent duplicates
+        if (subjectMeta.subject_description) {
+          const { data: existingSubject } = await supabase
+            .from('questions')
+            .select('subject_code, subject_description, category, specialization')
+            .eq('subject_description', subjectMeta.subject_description)
+            .eq('deleted', false)
+            .limit(1)
+            .maybeSingle();
+
+          if (existingSubject) {
+            // Match found — adopt existing code to prevent duplicates
+            if (existingSubject.subject_code && existingSubject.subject_code !== subjectMeta.subject_code) {
+              console.log(`   🔗 Subject dedup: "${subjectMeta.subject_description}" already exists with code ${existingSubject.subject_code}, adopting it`);
+              subjectMeta.subject_code = existingSubject.subject_code;
+            }
+            // Also adopt category/specialization if they were inferred
+            if (existingSubject.category) subjectMeta.category = existingSubject.category;
+            if (existingSubject.specialization) subjectMeta.specialization = existingSubject.specialization;
+          }
+        }
+
         // Insert into questions table
         const { data: saved, error: insertError } = await supabase
           .from('questions')
@@ -353,6 +387,10 @@ export class CompleteTestGenerator {
             bloom_level: q.bloom_level,
             difficulty: q.difficulty,
             knowledge_dimension: q.knowledge_dimension || 'conceptual',
+            category: subjectMeta.category,
+            specialization: subjectMeta.specialization,
+            subject_code: subjectMeta.subject_code,
+            subject_description: subjectMeta.subject_description,
             created_by: 'ai',
             approved: true,
             status: 'approved',
