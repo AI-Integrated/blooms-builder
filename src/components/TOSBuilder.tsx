@@ -48,6 +48,7 @@ const tosSchema = z.object({
   school_year: z.string().min(1, "School year is required"),
   total_items: z.number().min(10, "Minimum 10 items required").max(100, "Maximum 100 items allowed"),
   prepared_by: z.string().optional(),
+  checked_by: z.string().optional(),
   noted_by: z.string().optional(),
   topics: z.array(topicSchema).min(1, "At least one topic is required")
 });
@@ -95,6 +96,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
     defaultValues: {
       total_items: 50,
       prepared_by: "",
+      checked_by: "",
       noted_by: "",
       topics: topics
     }
@@ -155,6 +157,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         school_year: template.school_year || "",
         total_items: template.total_items || 50,
         prepared_by: template.prepared_by || "",
+        checked_by: template.checked_by || "",
         noted_by: template.noted_by || "",
         topics: parsedTopics
       });
@@ -217,6 +220,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         school_year: data.school_year,
         total_items: data.total_items,
         prepared_by: data.prepared_by || "",
+        checked_by: data.checked_by || "",
         noted_by: data.noted_by || "",
         topics: validTopics
       });
@@ -279,6 +283,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
         school_year: tosMatrix.school_year,
         total_items: tosMatrix.total_items,
         prepared_by: tosMatrix.prepared_by,
+        checked_by: tosMatrix.checked_by,
         noted_by: tosMatrix.noted_by,
         topics: tosMatrix.topics,
         matrix: tosMatrix.matrix,
@@ -342,13 +347,14 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
           exam_period: tosMatrix.exam_period,
           school_year: tosMatrix.school_year,
           total_items: tosMatrix.total_items,
-          prepared_by: tosMatrix.prepared_by,
-          noted_by: tosMatrix.noted_by,
-          topics: tosMatrix.topics,
-          matrix: tosMatrix.matrix,
-          distribution: tosMatrix.distribution
-        };
-        
+        prepared_by: tosMatrix.prepared_by,
+        checked_by: tosMatrix.checked_by,
+        noted_by: tosMatrix.noted_by,
+        topics: tosMatrix.topics,
+        matrix: tosMatrix.matrix,
+        distribution: tosMatrix.distribution
+      };
+      
         try {
           const savedTOS = await TOS.create(tosData);
           
@@ -654,6 +660,15 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
                   id="preparedBy"
                   {...register("prepared_by")}
                   placeholder="e.g., Teacher Name"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="checkedBy">Checked and Reviewed By</Label>
+                <Input
+                  id="checkedBy"
+                  {...register("checked_by")}
+                  placeholder="e.g., Program Chair Name"
                 />
               </div>
 

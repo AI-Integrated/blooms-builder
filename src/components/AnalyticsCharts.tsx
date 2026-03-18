@@ -52,7 +52,7 @@ const BLOOM_COLORS = {
 
 const CREATOR_COLORS = {
   "AI Generated": "hsl(var(--primary))",
-  "Teacher Created": "hsl(var(--secondary))"
+  "Admin Created": "hsl(var(--secondary))"
 };
 
 const DIFFICULTY_COLORS = {
@@ -161,7 +161,12 @@ export const AnalyticsCharts = () => {
 
       const totalQuestions = bloomData.reduce((sum, item) => sum + item.value, 0);
       const aiQuestions = creatorData.find(item => item.name === 'AI Generated')?.value || 0;
-      const teacherQuestions = creatorData.find(item => item.name === 'Teacher Created')?.value || 0;
+      const teacherQuestions = creatorData.find(item => item.name === 'Teacher Created')?.value || creatorData.find(item => item.name === 'Admin Created')?.value || 0;
+      
+      // Rename "Teacher Created" to "Admin Created" in creator stats
+      const renamedCreatorData = creatorData.map(item => 
+        item.name === 'Teacher Created' ? { ...item, name: 'Admin Created' } : item
+      );
       const approvedQuestions = approvalData.find(item => item.name === 'Approved')?.value || 0;
       const pendingApproval = approvalData.find(item => item.name === 'Pending Review')?.value || 0;
 
@@ -180,7 +185,7 @@ export const AnalyticsCharts = () => {
 
       setAnalytics({
         bloomDistribution: bloomData,
-        creatorStats: creatorData,
+        creatorStats: renamedCreatorData,
         timeSeriesData: usageData,
         difficultySpread: difficultyData,
         usageStats,
@@ -267,7 +272,7 @@ export const AnalyticsCharts = () => {
 
         <Card className="bg-gradient-card border-0 shadow-card">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Teacher Created</CardTitle>
+            <CardTitle className="text-sm font-medium">Admin Created</CardTitle>
             <TrendingUp className="h-4 w-4 text-secondary" />
           </CardHeader>
           <CardContent>
@@ -276,19 +281,6 @@ export const AnalyticsCharts = () => {
               {analytics.totalQuestions > 0 
                 ? Math.round((analytics.teacherQuestions / analytics.totalQuestions) * 100)
                 : 0}% of total
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-card border-0 shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Approved Questions</CardTitle>
-            <CheckCircle className="h-4 w-4 text-secondary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{analytics.approvedQuestions}</div>
-            <p className="text-xs text-muted-foreground">
-              {analytics.pendingApproval} pending review
             </p>
           </CardContent>
         </Card>
@@ -320,6 +312,7 @@ export const AnalyticsCharts = () => {
                     outerRadius={80}
                     innerRadius={40}
                     paddingAngle={2}
+                    label={({ name, percentage }) => `${name} ${percentage}%`}
                   >
                     {analytics.bloomDistribution.map((entry, index) => (
                       <Cell 
@@ -383,6 +376,7 @@ export const AnalyticsCharts = () => {
                     dataKey="value" 
                     radius={[4, 4, 0, 0]}
                     fill="hsl(var(--primary))"
+                    label={{ position: 'top', fontSize: 12, fill: 'hsl(var(--foreground))' }}
                   />
                   <ChartTooltip
                     content={({ active, payload, label }) => {
@@ -433,6 +427,7 @@ export const AnalyticsCharts = () => {
                     outerRadius={80}
                     innerRadius={40}
                     paddingAngle={2}
+                    label={({ name, percentage }) => `${name} ${percentage}%`}
                   >
                     {analytics.difficultySpread.map((entry, index) => (
                       <Cell 
@@ -537,20 +532,22 @@ export const AnalyticsCharts = () => {
           </CardHeader>
           <CardContent>
             <ChartContainer config={chartConfig} className="max-h-[400px]">
-              <BarChart data={analytics.topicAnalysis} layout="horizontal">
+              <BarChart data={analytics.topicAnalysis} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
                 <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                 <YAxis 
                   type="category" 
                   dataKey="topic" 
                   stroke="hsl(var(--muted-foreground))" 
-                  fontSize={12}
-                  width={120}
+                  fontSize={11}
+                  width={150}
+                  tickLine={false}
                 />
                 <Bar 
                   dataKey="questionCount" 
                   radius={[0, 4, 4, 0]}
                   fill="hsl(var(--primary))"
+                  label={{ position: 'right', fontSize: 11, fill: 'hsl(var(--foreground))' }}
                 />
                 <ChartTooltip
                   content={({ active, payload, label }) => {

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Download, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { CanonicalTOSMatrix, BloomLevel } from "@/utils/tosCalculator";
+import { ISODocumentHeader } from "@/components/print/ISODocumentHeader";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -26,7 +27,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
 
   const formatItemNumbers = (items: number[]) => {
     if (items.length === 0) return "";
-    if (items.length === 1) return `(${items[0]})`;
+    if (items.length <= 3) return `(${items.join(',')})`;
     const sorted = [...items].sort((a, b) => a - b);
     const groups: string[] = [];
     let start = sorted[0], end = sorted[0];
@@ -41,39 +42,28 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
     return `(${groups.join(',')})`;
   };
 
-  const formatItemPlacement = (topicName: string) => {
-    const allItems = bloomLevels
-      .flatMap(l => distribution[topicName]?.[l.key]?.items || [])
-      .sort((a, b) => a - b);
-    if (allItems.length === 0) return "-";
-    return "I";
-  };
-
   const getTopicTotal = (topic: string) => distribution[topic]?.total || 0;
   const actualTotal = Object.values(distribution).reduce((sum, t) => sum + t.total, 0);
 
-  // Shared inline styles for the printable content (used by both screen render and popup print)
-  const printStyles = `
-    @page { size: letter landscape; margin: 0.5in 0.6in; }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #000; background: #fff; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .tos-header { text-align: center; font-weight: bold; font-size: 14pt; border: 2px solid #000; padding: 6px 0; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 1px; }
-    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 40px; margin-bottom: 14px; font-size: 11pt; }
-    .meta-grid .value { text-decoration: underline; margin-left: 4px; }
-    table { border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 8px; }
-    th, td { border: 1.5px solid #000; padding: 4px 6px; text-align: center; vertical-align: middle; font-size: 9.5pt; }
-    th { background-color: #e8f5e9 !important; font-weight: bold; }
-    .topic-cell { text-align: left; padding-left: 8px; min-width: 120px; }
-    .item-nums { font-size: 7.5pt; display: block; color: #333; }
-    .sig-section { display: flex; justify-content: space-between; margin-top: 30px; }
-    .sig-block { text-align: center; width: 40%; }
-    .sig-line { border-top: 1px solid #000; margin-top: 30px; padding-top: 4px; font-weight: bold; }
-    .sig-title { font-size: 9pt; color: #555; }
-    .total-row td { font-weight: bold; background-color: #f5f5f5 !important; }
-    @media print { body { margin: 0; padding: 0; } }
-  `;
+  const thStyle: React.CSSProperties = {
+    border: '1.5px solid #000',
+    padding: '4px 6px',
+    backgroundColor: '#91E291',
+    fontWeight: 'bold',
+    fontSize: '9.5pt',
+    textAlign: 'center',
+    verticalAlign: 'middle',
+  };
 
-  // Build the inner HTML for the TOS document (shared between screen and print)
+  const tdStyle: React.CSSProperties = {
+    border: '1.5px solid #000',
+    padding: '4px 6px',
+    textAlign: 'center',
+    fontSize: '9.5pt',
+    verticalAlign: 'middle',
+  };
+
+  // Build the inner HTML for print popup (includes ISO header as HTML string)
   const buildTOSHTML = useCallback(() => {
     const topicRows = data.topics.map(t => {
       const dist = distribution[t.topic];
@@ -122,6 +112,27 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
     const levels = ['remembering', 'understanding', 'applying', 'analyzing', 'evaluating', 'creating'] as const;
 
     return `
+      <!-- ISO Document Header -->
+      <div style="display:flex;align-items:flex-start;gap:12pt;margin-bottom:8pt;font-family:'Times New Roman',Times,serif;">
+        <div style="flex-shrink:0;width:72pt;height:72pt;">
+          <img src="/images/institution-logo.png" alt="Logo" style="width:72pt;height:72pt;object-fit:contain;background:#ffffff;border-radius:0;" crossorigin="anonymous" />
+        </div>
+        <div style="flex:1;text-align:left;padding-top:2pt;">
+          <div style="font-weight:bold;font-size:11pt;text-transform:uppercase;">AGUSAN DEL SUR STATE COLLEGE OF AGRICULTURE AND TECHNOLOGY</div>
+          <div style="font-size:9pt;">Bunawan, Agusan del Sur</div>
+          <div style="font-size:9pt;">website: <span style="text-decoration:underline">http://asscat.edu.ph</span></div>
+          <div style="font-size:9pt;">email address: <span style="text-decoration:underline">op@asscat.edu.ph</span>; mobile no.: +639486379266</div>
+        </div>
+        <div style="flex-shrink:0;">
+          <table style="border-collapse:collapse;font-size:8.5pt;">
+            <tr><td style="border:1px solid #000;padding:2px 6px;">Doc No.:</td><td style="border:1px solid #000;padding:2px 6px;">F-DOI-009</td></tr>
+            <tr><td style="border:1px solid #000;padding:2px 6px;">Effective Date:</td><td style="border:1px solid #000;padding:2px 6px;">11/17/2025</td></tr>
+            <tr><td style="border:1px solid #000;padding:2px 6px;">Rev No.:</td><td style="border:1px solid #000;padding:2px 6px;">3</td></tr>
+            <tr><td style="border:1px solid #000;padding:2px 6px;">Page No.:</td><td style="border:1px solid #000;padding:2px 6px;">1 of 1</td></tr>
+          </table>
+        </div>
+      </div>
+
       <div class="tos-header">Two-Way Table of Specification</div>
       <div class="meta-grid">
         <div><span>College: </span><span class="value">${data.description || '_______________'}</span></div>
@@ -134,12 +145,12 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
       <table>
         <thead>
           <tr>
-            <th rowspan="2" style="min-width:120px">TOPIC</th>
-            <th rowspan="2">NO. OF<br>HOURS</th>
-            <th rowspan="2">PERCENTAGE</th>
+            <th rowspan="3" style="min-width:120px;text-align:left;padding-left:8px">TOPIC</th>
+            <th rowspan="3">NO. OF<br>HOURS</th>
+            <th rowspan="3">PERCEN<br>TAGE</th>
             <th colspan="6" style="font-size:10pt">COGNITIVE DOMAINS</th>
-            <th rowspan="2">ITEM<br>PLACEMENT</th>
-            <th rowspan="2">TOTAL</th>
+            <th rowspan="3">ITEM<br>PLACEMENT</th>
+            <th rowspan="3">TOTAL</th>
           </tr>
           <tr>
             <th colspan="2" style="font-size:8.5pt">EASY (30%)</th>
@@ -147,21 +158,19 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
             <th colspan="2" style="font-size:8.5pt">DIFFICULT (30%)</th>
           </tr>
           <tr>
-            <th colspan="3" style="padding:0"></th>
             <th style="font-size:8pt">Remembering<br>(15%)</th>
             <th style="font-size:8pt">Understanding<br>(15%)</th>
             <th style="font-size:8pt">Applying<br>(20%)</th>
             <th style="font-size:8pt">Analyzing<br>(20%)</th>
             <th style="font-size:8pt">Evaluating<br>(15%)</th>
             <th style="font-size:8pt">Creating<br>(15%)</th>
-            <th colspan="2" style="padding:0"></th>
           </tr>
         </thead>
         <tbody>
           ${topicRows.map(row => `
             <tr>
-              <td class="topic-cell">${row.topic}</td>
-              <td>${row.hours} hours</td>
+              <td style="text-align:left;padding-left:8px">${row.topic}</td>
+              <td>${row.hours}</td>
               <td>${row.percentage}%</td>
               ${levels.map(level => `
                 <td>
@@ -169,7 +178,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
                   <span class="item-nums">${fmtItems(row[level].items)}</span>
                 </td>
               `).join('')}
-              <td style="font-weight:bold">I</td>
+              <td style="font-weight:bold">Test I</td>
               <td style="font-weight:bold;font-size:10pt">${row.total}</td>
             </tr>
           `).join('')}
@@ -190,18 +199,43 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
       </table>
       <div class="sig-section">
         <div class="sig-block">
-          <div>Prepared by:</div>
-          <div class="sig-line">${data.prepared_by || ''}</div>
-          ${data.prepared_by ? '<div class="sig-title">Teacher</div>' : ''}
+          <div style="font-size:9pt;margin-bottom:4px;">Prepared by:</div>
+          <div style="margin-top:20px;font-weight:bold;text-transform:uppercase;border-bottom:1px solid #000;padding-bottom:2px;display:inline-block;min-width:160px;">${data.prepared_by || '\u00A0'}</div>
+          <div class="sig-title" style="font-style:italic">Instructor</div>
         </div>
         <div class="sig-block">
-          <div>Noted by:</div>
-          <div class="sig-line">${data.noted_by || ''}</div>
-          ${data.noted_by ? '<div class="sig-title">Dean</div>' : ''}
+          <div style="font-size:9pt;margin-bottom:4px;">Checked and Reviewed by:</div>
+          <div style="margin-top:20px;font-weight:bold;text-transform:uppercase;border-bottom:1px solid #000;padding-bottom:2px;display:inline-block;min-width:160px;">${data.checked_by || '\u00A0'}</div>
+          <div class="sig-title" style="font-style:italic">Program Chair</div>
+        </div>
+        <div class="sig-block">
+          <div style="font-size:9pt;margin-bottom:4px;">Approved by:</div>
+          <div style="margin-top:20px;font-weight:bold;text-transform:uppercase;border-bottom:1px solid #000;padding-bottom:2px;display:inline-block;min-width:160px;">${data.noted_by || '\u00A0'}</div>
+          <div class="sig-title" style="font-style:italic">Dean</div>
         </div>
       </div>
     `;
   }, [data, distribution]);
+
+  // Shared inline styles for the printable content
+  const printStyles = `
+    @page { size: letter landscape; margin: 0.5in 0.6in; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #000; background: #fff; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    img { max-width: 100%; }
+    .tos-header { text-align: center; font-weight: bold; font-size: 14pt; border: 2px solid #000; padding: 6px 0; margin-bottom: 14px; margin-top: 8px; text-transform: uppercase; letter-spacing: 1px; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 40px; margin-bottom: 14px; font-size: 11pt; }
+    .meta-grid .value { text-decoration: underline; margin-left: 4px; }
+    table { border-collapse: collapse; width: 100%; table-layout: auto; margin-top: 8px; }
+    th, td { border: 1.5px solid #000; padding: 4px 6px; text-align: center; vertical-align: middle; font-size: 9.5pt; }
+    th { background-color: #91E291 !important; font-weight: bold; }
+    .item-nums { font-size: 7.5pt; display: block; color: #333; }
+    .sig-section { display: flex; justify-content: space-between; margin-top: 30px; font-size: 10pt; }
+    .sig-block { text-align: center; width: 30%; }
+    .sig-title { font-size: 9pt; }
+    .total-row td { font-weight: bold; background-color: #f5f5f5 !important; }
+    @media print { body { margin: 0; padding: 0; } }
+  `;
 
   const handlePrint = useCallback(() => {
     const printWindow = window.open('', '_blank');
@@ -286,7 +320,7 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
         </Button>
       </div>
 
-      {/* Printable TOS Document - rendered on screen and used for PDF capture */}
+      {/* Printable TOS Document */}
       <div
         ref={printRef}
         style={{
@@ -298,8 +332,26 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
           lineHeight: 1.4,
         }}
       >
+        {/* ISO Document Header */}
+        <ISODocumentHeader
+          docNo="F-DOI-009"
+          effectiveDate="11/17/2025"
+          revNo="3"
+          pageInfo="1 of 1"
+        />
+
         {/* Title */}
-        <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '14pt', border: '2px solid #000', padding: '6px 0', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+        <div style={{
+          textAlign: 'center',
+          fontWeight: 'bold',
+          fontSize: '14pt',
+          border: '2px solid #000',
+          padding: '6px 0',
+          marginBottom: '14px',
+          marginTop: '8px',
+          textTransform: 'uppercase',
+          letterSpacing: '1px',
+        }}>
           Two-Way Table of Specification
         </div>
 
@@ -317,26 +369,24 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
         <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'auto', marginTop: '8px' }}>
           <thead>
             <tr>
-              <th rowSpan={2} style={{ border: '1.5px solid #000', padding: '4px 6px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '9.5pt', minWidth: '120px' }}>TOPIC</th>
-              <th rowSpan={2} style={{ border: '1.5px solid #000', padding: '4px 6px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '9.5pt' }}>NO. OF<br/>HOURS</th>
-              <th rowSpan={2} style={{ border: '1.5px solid #000', padding: '4px 6px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '9.5pt' }}>PERCENTAGE</th>
-              <th colSpan={6} style={{ border: '1.5px solid #000', padding: '4px 6px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '10pt' }}>COGNITIVE DOMAINS</th>
-              <th rowSpan={2} style={{ border: '1.5px solid #000', padding: '4px 6px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '9.5pt' }}>ITEM<br/>PLACEMENT</th>
-              <th rowSpan={2} style={{ border: '1.5px solid #000', padding: '4px 6px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '9.5pt' }}>TOTAL</th>
+              <th rowSpan={3} style={{ ...thStyle, minWidth: '120px', textAlign: 'left', paddingLeft: '8px' }}>TOPIC</th>
+              <th rowSpan={3} style={thStyle}>NO. OF<br/>HOURS</th>
+              <th rowSpan={3} style={thStyle}>PERCEN<br/>TAGE</th>
+              <th colSpan={6} style={{ ...thStyle, fontSize: '10pt' }}>COGNITIVE DOMAINS</th>
+              <th rowSpan={3} style={thStyle}>ITEM<br/>PLACEMENT</th>
+              <th rowSpan={3} style={thStyle}>TOTAL</th>
             </tr>
             <tr>
-              <th colSpan={2} style={{ border: '1.5px solid #000', padding: '3px 4px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '8.5pt' }}>EASY (30%)</th>
-              <th colSpan={2} style={{ border: '1.5px solid #000', padding: '3px 4px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '8.5pt' }}>AVERAGE (40%)</th>
-              <th colSpan={2} style={{ border: '1.5px solid #000', padding: '3px 4px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '8.5pt' }}>DIFFICULT (30%)</th>
+              <th colSpan={2} style={{ ...thStyle, fontSize: '8.5pt' }}>EASY (30%)</th>
+              <th colSpan={2} style={{ ...thStyle, fontSize: '8.5pt' }}>AVERAGE (40%)</th>
+              <th colSpan={2} style={{ ...thStyle, fontSize: '8.5pt' }}>DIFFICULT (30%)</th>
             </tr>
             <tr>
-              <th colSpan={3} style={{ border: '1.5px solid #000', padding: '0', backgroundColor: '#e8f5e9' }}></th>
               {bloomLevels.map(level => (
-                <th key={level.key} style={{ border: '1.5px solid #000', padding: '3px 4px', backgroundColor: '#e8f5e9', fontWeight: 'bold', fontSize: '8pt' }}>
+                <th key={level.key} style={{ ...thStyle, fontSize: '8pt' }}>
                   {level.label}<br/>({level.pct})
                 </th>
               ))}
-              <th colSpan={2} style={{ border: '1.5px solid #000', padding: '0', backgroundColor: '#e8f5e9' }}></th>
             </tr>
           </thead>
           <tbody>
@@ -344,19 +394,15 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
               const topicDist = distribution[topic.topic];
               return (
                 <tr key={topic.topic}>
-                  <td style={{ border: '1.5px solid #000', padding: '5px 8px', textAlign: 'left', fontSize: '9.5pt', verticalAlign: 'middle' }}>
+                  <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: '8px' }}>
                     {topic.topic}
                   </td>
-                  <td style={{ border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '9.5pt', verticalAlign: 'middle' }}>
-                    {topic.hours} hours
-                  </td>
-                  <td style={{ border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '9.5pt', verticalAlign: 'middle' }}>
-                    {topicDist?.percentage || 0}%
-                  </td>
+                  <td style={tdStyle}>{topic.hours}</td>
+                  <td style={tdStyle}>{topicDist?.percentage || 0}%</td>
                   {bloomLevels.map(level => {
                     const bloomData = topicDist?.[level.key];
                     return (
-                      <td key={level.key} style={{ border: '1.5px solid #000', padding: '4px 5px', textAlign: 'center', fontSize: '9.5pt', verticalAlign: 'middle' }}>
+                      <td key={level.key} style={tdStyle}>
                         {bloomData?.count || 0}
                         <span style={{ display: 'block', fontSize: '7.5pt', color: '#333' }}>
                           {formatItemNumbers(bloomData?.items || [])}
@@ -364,10 +410,8 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
                       </td>
                     );
                   })}
-                  <td style={{ border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '9.5pt', fontWeight: 'bold', verticalAlign: 'middle' }}>
-                    {formatItemPlacement(topic.topic)}
-                  </td>
-                  <td style={{ border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '10pt', fontWeight: 'bold', verticalAlign: 'middle' }}>
+                  <td style={{ ...tdStyle, fontWeight: 'bold' }}>Test I</td>
+                  <td style={{ ...tdStyle, fontWeight: 'bold', fontSize: '10pt' }}>
                     {getTopicTotal(topic.topic)}
                   </td>
                 </tr>
@@ -375,31 +419,71 @@ export const TOSMatrix = ({ data }: TOSMatrixProps) => {
             })}
             {/* Totals row */}
             <tr style={{ fontWeight: 'bold', backgroundColor: '#f5f5f5' }}>
-              <td style={{ border: '1.5px solid #000', padding: '5px 8px', textAlign: 'left', fontSize: '10pt', fontWeight: 'bold' }}>TOTAL</td>
-              <td style={{ border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '10pt', fontWeight: 'bold' }}>{total_hours}</td>
-              <td style={{ border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '10pt', fontWeight: 'bold' }}>100%</td>
+              <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: '8px', fontWeight: 'bold', fontSize: '10pt' }}>TOTAL</td>
+              <td style={{ ...tdStyle, fontWeight: 'bold', fontSize: '10pt' }}>{total_hours}</td>
+              <td style={{ ...tdStyle, fontWeight: 'bold', fontSize: '10pt' }}>100%</td>
               {bloomLevels.map(level => (
-                <td key={level.key} style={{ border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '10pt', fontWeight: 'bold' }}>
+                <td key={level.key} style={{ ...tdStyle, fontWeight: 'bold', fontSize: '10pt' }}>
                   {bloom_totals[level.key]}
                 </td>
               ))}
-              <td style={{ border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '10pt' }}></td>
-              <td style={{ border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '10pt', fontWeight: 'bold' }}>{actualTotal}</td>
+              <td style={{ ...tdStyle, fontSize: '10pt' }}></td>
+              <td style={{ ...tdStyle, fontWeight: 'bold', fontSize: '10pt' }}>{actualTotal}</td>
             </tr>
           </tbody>
         </table>
 
-        {/* Signature Section */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '30px' }}>
-          <div style={{ textAlign: 'center', width: '40%' }}>
-            <div>Prepared by:</div>
-            <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.prepared_by || ''}</div>
-            {data.prepared_by && <div style={{ fontSize: '9pt', color: '#555' }}>Teacher</div>}
+        {/* Signature Section - matching tos-history format exactly */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginTop: '30px',
+          fontSize: '10pt',
+        }}>
+          <div style={{ textAlign: 'center', width: '30%' }}>
+            <div style={{ fontSize: '9pt', marginBottom: '4px' }}>Prepared by:</div>
+            <div style={{
+              marginTop: '20px',
+              fontWeight: 'bold',
+              textTransform: 'uppercase' as const,
+              borderBottom: '1px solid #000',
+              paddingBottom: '2px',
+              display: 'inline-block',
+              minWidth: '160px',
+            }}>
+              {data.prepared_by || '\u00A0'}
+            </div>
+            <div style={{ fontSize: '9pt', fontStyle: 'italic' }}>Instructor</div>
           </div>
-          <div style={{ textAlign: 'center', width: '40%' }}>
-            <div>Noted by:</div>
-            <div style={{ borderTop: '1px solid #000', marginTop: '30px', paddingTop: '4px', fontWeight: 'bold' }}>{data.noted_by || ''}</div>
-            {data.noted_by && <div style={{ fontSize: '9pt', color: '#555' }}>Dean</div>}
+          <div style={{ textAlign: 'center', width: '30%' }}>
+            <div style={{ fontSize: '9pt', marginBottom: '4px' }}>Checked and Reviewed by:</div>
+            <div style={{
+              marginTop: '20px',
+              fontWeight: 'bold',
+              textTransform: 'uppercase' as const,
+              borderBottom: '1px solid #000',
+              paddingBottom: '2px',
+              display: 'inline-block',
+              minWidth: '160px',
+            }}>
+              {data.checked_by || '\u00A0'}
+            </div>
+            <div style={{ fontSize: '9pt', fontStyle: 'italic' }}>Program Chair</div>
+          </div>
+          <div style={{ textAlign: 'center', width: '30%' }}>
+            <div style={{ fontSize: '9pt', marginBottom: '4px' }}>Approved by:</div>
+            <div style={{
+              marginTop: '20px',
+              fontWeight: 'bold',
+              textTransform: 'uppercase' as const,
+              borderBottom: '1px solid #000',
+              paddingBottom: '2px',
+              display: 'inline-block',
+              minWidth: '160px',
+            }}>
+              {data.noted_by || '\u00A0'}
+            </div>
+            <div style={{ fontSize: '9pt', fontStyle: 'italic' }}>Dean</div>
           </div>
         </div>
       </div>
