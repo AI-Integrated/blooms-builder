@@ -58,8 +58,8 @@ export function TOSMatrix({ data }: TOSMatrixProps) {
       <div className="border-2 border-black mb-4 print:mb-2">
         {/* Institution Header */}
         <div className="flex items-start gap-4 p-4 border-b border-black">
-          <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center text-xs text-center">
-            LOGO
+          <div className="w-20 h-20 flex items-center justify-center" style={{ background: '#ffffff' }}>
+            <img src="/images/institution-logo.png" alt="Logo" className="w-20 h-20 object-contain" />
           </div>
           <div className="flex-1">
             <div className="text-lg font-bold uppercase">
@@ -112,7 +112,7 @@ export function TOSMatrix({ data }: TOSMatrixProps) {
         <table className="w-full border-collapse">
           <thead>
             {/* Main Header Row */}
-            <tr className="bg-gray-100">
+            <tr style={{ backgroundColor: '#91E291' }}>
               <th rowSpan={3} className="border border-black p-2 font-bold text-center w-48">TOPIC</th>
               <th rowSpan={3} className="border border-black p-2 font-bold text-center w-24">NO. OF HOURS</th>
               <th rowSpan={3} className="border border-black p-2 font-bold text-center w-24">PERCENTAGE</th>
@@ -121,13 +121,13 @@ export function TOSMatrix({ data }: TOSMatrixProps) {
               <th rowSpan={3} className="border border-black p-2 font-bold text-center w-20">TOTAL</th>
             </tr>
             {/* Difficulty Level Row */}
-            <tr className="bg-gray-100">
+            <tr style={{ backgroundColor: '#91E291' }}>
               <th colSpan={2} className="border border-black p-1 font-bold text-center">EASY (30%)</th>
               <th colSpan={2} className="border border-black p-1 font-bold text-center">AVERAGE (40%)</th>
               <th colSpan={2} className="border border-black p-1 font-bold text-center">DIFFICULT (30%)</th>
             </tr>
             {/* Bloom's Taxonomy Row */}
-            <tr className="bg-gray-100">
+            <tr style={{ backgroundColor: '#91E291' }}>
               {bloomLevels.map((level) => (
                 <th key={level.key} className="border border-black p-1 font-bold text-center text-xs">
                   <div>{level.label}</div>
@@ -177,21 +177,26 @@ export function TOSMatrix({ data }: TOSMatrixProps) {
 
       {/* Signature Section */}
       <div className="mt-8 flex justify-between">
-        <div className="text-left">
-          <div className="font-semibold mb-16">Prepared by:</div>
-          <div className="text-center">
-            <div className="border-b border-black w-64 mb-1"></div>
-            <div className="font-bold">{data.preparedBy || 'MICHELLE C. ELAPE, MIT'}</div>
-            <div className="text-sm italic">Instructor</div>
+        <div className="text-center" style={{ width: '30%' }}>
+          <div className="font-semibold mb-5">Prepared by:</div>
+          <div className="font-bold uppercase border-b border-black inline-block min-w-[160px] pb-0.5">
+            {data.preparedBy || '\u00A0'}
           </div>
+          <div className="text-sm italic">Instructor</div>
         </div>
-        <div className="text-right">
-          <div className="font-semibold mb-16">Noted:</div>
-          <div className="text-center">
-            <div className="border-b border-black w-64 mb-1"></div>
-            <div className="font-bold">{data.notedBy || 'JEANIE R. DELOS ARCOS, MIT'}</div>
-            <div className="text-sm italic">Associate Dean</div>
+        <div className="text-center" style={{ width: '30%' }}>
+          <div className="font-semibold mb-5">Checked and Reviewed by:</div>
+          <div className="font-bold uppercase border-b border-black inline-block min-w-[160px] pb-0.5">
+            {data.checkedBy || '\u00A0'}
           </div>
+          <div className="text-sm italic">Program Chair</div>
+        </div>
+        <div className="text-center" style={{ width: '30%' }}>
+          <div className="font-semibold mb-5">Approved by:</div>
+          <div className="font-bold uppercase border-b border-black inline-block min-w-[160px] pb-0.5">
+            {data.notedBy || '\u00A0'}
+          </div>
+          <div className="text-sm italic">Dean</div>
         </div>
       </div>
     </div>

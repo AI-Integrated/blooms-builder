@@ -7,15 +7,17 @@ import {
   FileText, 
   Sparkles, 
   Clock,
-  BarChart3,
+  
   Settings,
   LogOut,
   ChevronLeft,
   ChevronRight,
   User,
   BookOpen,
+  Database,
   Menu,
-  X
+  X,
+  Brain
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -42,16 +44,22 @@ const teacherMenuItems = [
     description: "View generated tests" 
   },
   { 
+    title: "Question Bank", 
+    href: "/teacher/question-bank", 
+    icon: Database,
+    description: "Browse questions" 
+  },
+  { 
     title: "TOS History", 
     href: "/teacher/tos-history", 
     icon: Clock,
     description: "Saved specifications" 
   },
   { 
-    title: "Reports", 
-    href: "/teacher/reports", 
-    icon: BarChart3,
-    description: "Usage statistics" 
+    title: "AI Assistant", 
+    href: "/teacher/ai-assistant", 
+    icon: Brain,
+    description: "Academic AI helper" 
   },
 ];
 
