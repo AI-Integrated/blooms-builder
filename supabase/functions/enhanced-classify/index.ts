@@ -12,10 +12,34 @@ serve(async (req) => {
   }
 
   try {
+    // Auth check
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const anonClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
+    const token = authHeader.replace('Bearer ', '');
+    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Role check - teacher or admin only
+    const roleClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: userRole } = await roleClient.rpc('get_user_role', { user_id: claimsData.claims.sub });
+    if (!userRole || !['admin', 'teacher'].includes(userRole)) {
+      return new Response(JSON.stringify({ error: 'Insufficient permissions' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const { questionText, questionType, topic, choices } = await req.json();
 
     if (!questionText) {
       throw new Error('Question text is required');
+    }
+
+    // Input validation
+    if (typeof questionText !== 'string' || questionText.length > 10000) {
+      return new Response(JSON.stringify({ error: 'questionText must be a string of at most 10000 characters' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const supabaseClient = createClient(
@@ -44,7 +68,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error in enhanced-classify:', error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({ error: 'An unexpected error occurred' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
@@ -63,7 +87,6 @@ async function classifyQuestion(
 }> {
   const lowerText = questionText.toLowerCase();
   
-  // Bloom's taxonomy classification based on action verbs
   const bloomIndicators = {
     remembering: ['define', 'list', 'recall', 'name', 'identify', 'state', 'describe'],
     understanding: ['explain', 'summarize', 'interpret', 'classify', 'compare', 'exemplify'],
@@ -84,7 +107,6 @@ async function classifyQuestion(
     }
   }
 
-  // Knowledge dimension classification
   const knowledgeIndicators = {
     factual: ['what is', 'who is', 'when did', 'define', 'list'],
     conceptual: ['why', 'how does', 'relationship', 'principle', 'theory'],
@@ -103,7 +125,6 @@ async function classifyQuestion(
     }
   }
 
-  // Difficulty estimation
   const wordCount = questionText.split(/\s+/).length;
   const hasNegation = /\b(not|except|unless)\b/i.test(questionText);
   const questionComplexity = questionText.split(/[,;()]/).length;
@@ -115,27 +136,13 @@ async function classifyQuestion(
     difficulty = 'hard';
   }
 
-  // Identify cognitive processes
   const cognitiveProcesses: string[] = [];
-  if (lowerText.includes('compare') || lowerText.includes('contrast')) {
-    cognitiveProcesses.push('comparing');
-  }
-  if (lowerText.includes('analyze') || lowerText.includes('break down')) {
-    cognitiveProcesses.push('analyzing');
-  }
-  if (lowerText.includes('create') || lowerText.includes('design')) {
-    cognitiveProcesses.push('creating');
-  }
-  if (lowerText.includes('evaluate') || lowerText.includes('judge')) {
-    cognitiveProcesses.push('evaluating');
-  }
+  if (lowerText.includes('compare') || lowerText.includes('contrast')) cognitiveProcesses.push('comparing');
+  if (lowerText.includes('analyze') || lowerText.includes('break down')) cognitiveProcesses.push('analyzing');
+  if (lowerText.includes('create') || lowerText.includes('design')) cognitiveProcesses.push('creating');
+  if (lowerText.includes('evaluate') || lowerText.includes('judge')) cognitiveProcesses.push('evaluating');
 
-  return {
-    bloomLevel,
-    knowledgeDimension,
-    difficulty,
-    cognitiveProcesses
-  };
+  return { bloomLevel, knowledgeDimension, difficulty, cognitiveProcesses };
 }
 
 function calculateConfidence(
@@ -148,18 +155,15 @@ function calculateConfidence(
   knowledgeConfidence: number;
   difficultyConfidence: number;
 } {
-  // Base confidence on text clarity and length
   const wordCount = questionText.split(/\s+/).length;
   const textClarity = wordCount >= 10 && wordCount <= 50 ? 0.9 : 0.7;
   
-  // Confidence based on choices quality (for multiple choice)
   let choicesQuality = 0.8;
   if (choices && choices.length > 0) {
     const avgChoiceLength = choices.reduce((sum, c) => sum + c.length, 0) / choices.length;
     choicesQuality = avgChoiceLength > 10 && avgChoiceLength < 100 ? 0.9 : 0.7;
   }
 
-  // Cognitive process indicators boost confidence
   const hasStrongIndicators = classification.cognitiveProcesses.length > 0 ? 0.95 : 0.75;
 
   return {
@@ -178,7 +182,6 @@ async function checkSimilarity(
   hasDuplicates: boolean;
   similarQuestions: Array<{ id: string; similarity: number; text: string }>;
 }> {
-  // Get questions from the same topic
   const { data: questions, error } = await supabaseClient
     .from('questions')
     .select('id, question_text')
@@ -195,11 +198,7 @@ async function checkSimilarity(
   for (const q of questions) {
     const similarity = calculateTextSimilarity(questionText, q.question_text);
     if (similarity >= threshold) {
-      similarQuestions.push({
-        id: q.id,
-        similarity,
-        text: q.question_text
-      });
+      similarQuestions.push({ id: q.id, similarity, text: q.question_text });
     }
   }
 

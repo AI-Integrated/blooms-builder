@@ -12,6 +12,26 @@ serve(async (req) => {
   }
 
   try {
+    // Auth check - admin only for model retraining
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const anonClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
+    const token = authHeader.replace('Bearer ', '');
+    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Role check - admin only for model retraining
+    const userId = claimsData.claims.sub;
+    const roleClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: userRole } = await roleClient.rpc('get_user_role', { user_id: userId });
+    if (userRole !== 'admin') {
+      return new Response(JSON.stringify({ error: 'Admin access required' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -51,10 +71,8 @@ serve(async (req) => {
       );
     }
 
-    // Analyze training data quality
     const trainingMetrics = analyzeTrainingData(validatedQuestions);
 
-    // Update model performance metrics
     const { error: metricsError } = await supabaseClient
       .from('ml_models')
       .upsert({
@@ -80,7 +98,6 @@ serve(async (req) => {
       console.error('Error updating model metrics:', metricsError);
     }
 
-    // Log retraining activity
     const { error: logError } = await supabaseClient
       .from('system_metrics')
       .insert({
@@ -115,7 +132,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        error: 'An unexpected error occurred'
       }),
       { 
         status: 500, 
@@ -128,7 +145,6 @@ serve(async (req) => {
 function analyzeTrainingData(questions: any[]) {
   const startTime = Date.now();
 
-  // Distribution analysis
   const bloomDistribution: Record<string, number> = {};
   const difficultyDistribution: Record<string, number> = {};
   const knowledgeDistribution: Record<string, number> = {};
@@ -149,11 +165,9 @@ function analyzeTrainingData(questions: any[]) {
 
   const avgConfidence = totalConfidence / questions.length;
   
-  // Calculate balance scores (how well distributed across categories)
   const bloomBalance = calculateBalanceScore(Object.values(bloomDistribution));
   const difficultyBalance = calculateBalanceScore(Object.values(difficultyDistribution));
   
-  // Estimate model performance based on training data quality
   const dataQualityScore = (avgConfidence + bloomBalance + difficultyBalance) / 3;
   
   return {
@@ -178,12 +192,10 @@ function calculateBalanceScore(distribution: number[]): number {
   const total = distribution.reduce((sum, val) => sum + val, 0);
   const expectedPerCategory = total / distribution.length;
   
-  // Calculate variance from ideal distribution
   const variance = distribution.reduce((sum, val) => {
     return sum + Math.pow(val - expectedPerCategory, 2);
   }, 0) / distribution.length;
   
-  // Convert variance to a 0-1 score (lower variance = higher score)
   const maxVariance = Math.pow(expectedPerCategory, 2);
   return Math.max(0, 1 - (variance / maxVariance));
 }

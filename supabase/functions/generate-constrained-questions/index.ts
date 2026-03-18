@@ -561,6 +561,26 @@ serve(async (req) => {
   }
 
   try {
+    // Auth check
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+    const anonClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
+    const authToken = authHeader.replace('Bearer ', '');
+    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(authToken);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Role check - teacher or admin only
+    const roleClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: userRole } = await roleClient.rpc('get_user_role', { user_id: claimsData.claims.sub });
+    if (!userRole || !['admin', 'teacher'].includes(userRole)) {
+      return new Response(JSON.stringify({ error: 'Insufficient permissions' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const { 
       topic, 
       bloom_level, 

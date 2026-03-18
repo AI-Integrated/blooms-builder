@@ -12,21 +12,64 @@ serve(async (req) => {
   }
 
   try {
+    // Auth check
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Role check - teacher or admin only
+    const anonClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
+    const jwtToken = authHeader.replace('Bearer ', '');
+    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(jwtToken);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const roleClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: userRole } = await roleClient.rpc('get_user_role', { user_id: claimsData.claims.sub });
+    if (!userRole || !['admin', 'teacher'].includes(userRole)) {
+      return new Response(JSON.stringify({ error: 'Insufficient permissions' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const { action, questionId, classification, confidence, notes } = await req.json();
+
+    // Input validation
+    if (!action || typeof action !== 'string') {
+      return new Response(JSON.stringify({ error: 'action is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    if (!questionId || typeof questionId !== 'string') {
+      return new Response(JSON.stringify({ error: 'questionId is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const authHeader = req.headers.get('Authorization')!;
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user } } = await supabaseClient.auth.getUser(token);
+    const { data: { user } } = await supabaseClient.auth.getUser(jwtToken);
 
-    if (!user) throw new Error('Unauthorized');
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
     switch (action) {
       case 'validate': {
+        // Whitelist allowed classification fields to prevent mass assignment
+        const safeClassification: Record<string, unknown> = {};
+        const allowedFields = ['bloom_level', 'knowledge_dimension', 'difficulty', 'cognitive_level'];
+        if (classification && typeof classification === 'object') {
+          for (const field of allowedFields) {
+            if (field in classification && typeof classification[field] === 'string') {
+              safeClassification[field] = classification[field];
+            }
+          }
+        }
+
+        // Validate confidence is a number between 0 and 1
+        const safeConfidence = typeof confidence === 'number'
+          ? Math.min(1, Math.max(0, confidence))
+          : 0;
+
         // Get original classification
         const { data: question } = await supabaseClient
           .from('questions')
@@ -40,22 +83,22 @@ serve(async (req) => {
           .insert({
             question_id: questionId,
             original_classification: question,
-            validated_classification: classification,
+            validated_classification: safeClassification,
             validator_id: user.id,
-            validation_confidence: confidence,
-            notes,
+            validation_confidence: safeConfidence,
+            notes: typeof notes === 'string' ? notes.slice(0, 2000) : null,
             validation_type: 'manual'
           });
 
-        // Update question
+        // Update question with only whitelisted fields
         await supabaseClient
           .from('questions')
           .update({
-            ...classification,
+            ...safeClassification,
             validation_status: 'validated',
             validated_by: user.id,
             validation_timestamp: new Date().toISOString(),
-            classification_confidence: confidence,
+            classification_confidence: safeConfidence,
             needs_review: false
           })
           .eq('id', questionId);

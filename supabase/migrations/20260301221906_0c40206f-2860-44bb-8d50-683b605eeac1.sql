@@ -1,0 +1,1 @@
+ALTER TABLE public.tos_entries ADD COLUMN IF NOT EXISTS checked_by text;

@@ -207,10 +207,40 @@ serve(async (req) => {
   }
 
   try {
+    // Auth check
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const anonClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
+    const token = authHeader.replace('Bearer ', '');
+    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Role check - teacher or admin only
+    const roleClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!);
+    const roleServiceClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: userRole } = await roleServiceClient.rpc('get_user_role', { user_id: claimsData.claims.sub });
+    if (!userRole || !['admin', 'teacher'].includes(userRole)) {
+      return new Response(JSON.stringify({ error: 'Insufficient permissions' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const { questions, options = {}, saveToDatabase = false } = await req.json();
     
     if (!Array.isArray(questions)) {
       throw new Error('Expected array of questions');
+    }
+
+    // Input validation
+    if (questions.length > 100) {
+      throw new Error('Maximum 100 questions per request');
+    }
+    for (const q of questions) {
+      if (q.text && q.text.length > 10000) {
+        throw new Error('Each question text must be at most 10000 characters');
+      }
     }
 
     // Initialize Supabase client if saving to database
