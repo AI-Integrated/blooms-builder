@@ -1,22 +1,52 @@
-import { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useMemo } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Edit, Trash2, Save, X } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Save, X, Filter, FileText, BarChart3 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Questions, type Question } from "@/services/db/questions";
+import { QuestionBankReports } from "@/components/admin/QuestionBankReports";
+import { FilterManagement } from "@/components/admin/FilterManagement";
+import { useUserRole } from "@/hooks/useUserRole";
+import { useAcademicHierarchy } from "@/hooks/useAcademicHierarchy";
+import { Settings2 } from "lucide-react";
+
+const ALL_BLOOM_LEVELS = ["Remembering", "Understanding", "Applying", "Analyzing", "Evaluating", "Creating"];
+
+const DIFFICULTY_COGNITIVE_MAP: Record<string, string[]> = {
+  Easy: ["Remembering", "Understanding"],
+  Average: ["Applying", "Analyzing"],
+  Difficult: ["Evaluating", "Creating"],
+};
+
+// These helper functions are no longer needed - replaced by useAcademicHierarchy hook
 
 export default function QuestionBankManager() {
   const [searchQuery, setSearchQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [activeView, setActiveView] = useState<"questions" | "reports" | "manage-filters">("questions");
+  const hierarchy = useAcademicHierarchy();
   const queryClient = useQueryClient();
+  const { isAdmin } = useUserRole();
 
+  // Cascading filters
+  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterSpecialization, setFilterSpecialization] = useState<string>("all");
+  const [filterSubjectCode, setFilterSubjectCode] = useState<string>("all");
+  const [filterSubjectDescription, setFilterSubjectDescription] = useState<string>("");
+
+  // Form state
   const [formData, setFormData] = useState({
     question_text: "",
     question_type: "mcq" as const,
@@ -28,65 +58,173 @@ export default function QuestionBankManager() {
     subject: "",
     grade_level: "",
     cognitive_level: "",
-    knowledge_dimension: ""
+    knowledge_dimension: "",
+    category: "",
+    specialization: "",
+    subject_code: "",
+    subject_description: "",
   });
+  const [formCustomCategory, setFormCustomCategory] = useState("");
+  const [formCustomSpecialization, setFormCustomSpecialization] = useState("");
+  const [formDifficultyDomain, setFormDifficultyDomain] = useState<string[]>([]);
 
   const { data: questions, isLoading } = useQuery({
-    queryKey: ['admin-questions', searchQuery],
+    queryKey: ["admin-questions"],
     queryFn: async () => {
-      const filters = searchQuery ? { search: searchQuery } : {};
-      return await Questions.getAll(filters);
-    }
+      const { data, error } = await supabase
+        .from("questions")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data || []) as Question[];
+    },
   });
 
+  // --- Filter dropdown options (DB-driven) ---
+  const specializationOptions = useMemo(() => {
+    if (filterCategory === "all") return hierarchy.allSpecializations.map(s => s.name);
+    const cat = hierarchy.categories.find(c => c.name === filterCategory);
+    if (!cat) return [];
+    return hierarchy.getSpecializations(cat.id).map(s => s.name);
+  }, [filterCategory, hierarchy.categories, hierarchy.allSpecializations]);
+
+  const subjectCodeOptions = useMemo(() => {
+    if (filterSpecialization === "all") {
+      return hierarchy.allSubjects.map(s => ({ code: s.code, description: s.description }));
+    }
+    const spec = hierarchy.allSpecializations.find(s => s.name === filterSpecialization);
+    if (!spec) return [];
+    return hierarchy.getSubjects(spec.id).map(s => ({ code: s.code, description: s.description }));
+  }, [filterSpecialization, hierarchy.allSpecializations, hierarchy.allSubjects]);
+
+  const computedSubjectDescription = useMemo(() => {
+    if (filterSubjectCode === "all") return "";
+    const match = subjectCodeOptions.find(s => s.code === filterSubjectCode);
+    return match?.description || "";
+  }, [filterSubjectCode, subjectCodeOptions]);
+
+  // Cascading reset handlers
+  const handleCategoryChange = (value: string) => {
+    setFilterCategory(value);
+    setFilterSpecialization("all");
+    setFilterSubjectCode("all");
+    setFilterSubjectDescription("");
+  };
+
+  const handleSpecializationChange = (value: string) => {
+    setFilterSpecialization(value);
+    setFilterSubjectCode("all");
+    setFilterSubjectDescription("");
+  };
+
+  const handleSubjectCodeChange = (value: string) => {
+    setFilterSubjectCode(value);
+  };
+
+  // --- Filtered questions ---
+  const filteredQuestions = useMemo(() => {
+    if (!questions) return [];
+    let result = [...questions];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (item) =>
+          item.question_text.toLowerCase().includes(q) ||
+          item.topic?.toLowerCase().includes(q) ||
+          item.subject?.toLowerCase().includes(q) ||
+          (item.tags && item.tags.some((t) => t.toLowerCase().includes(q)))
+      );
+    }
+
+    if (filterCategory !== "all") {
+      result = result.filter((q) => (q as any).category === filterCategory);
+    }
+    if (filterSpecialization !== "all") {
+      result = result.filter((q) => (q as any).specialization === filterSpecialization);
+    }
+    if (filterSubjectCode !== "all") {
+      result = result.filter((q) => (q as any).subject_code === filterSubjectCode);
+    }
+
+    return result;
+  }, [questions, searchQuery, filterCategory, filterSpecialization, filterSubjectCode]);
+
+  // --- Form cognitive level options based on difficulty domain checkboxes ---
+  const availableCognitiveLevels = useMemo(() => {
+    if (formDifficultyDomain.length === 0) return ALL_BLOOM_LEVELS;
+    const levels = new Set<string>();
+    formDifficultyDomain.forEach((d) => {
+      DIFFICULTY_COGNITIVE_MAP[d]?.forEach((l) => levels.add(l));
+    });
+    return ALL_BLOOM_LEVELS.filter((l) => levels.has(l));
+  }, [formDifficultyDomain]);
+
+  // --- Form specialization options (DB-driven) ---
+  const formSpecializationOptions = useMemo(() => {
+    if (!formData.category) return [] as string[];
+    const cat = hierarchy.categories.find(c => c.name === formData.category);
+    if (!cat) return [] as string[];
+    return hierarchy.getSpecializations(cat.id).map(s => s.name);
+  }, [formData.category, hierarchy.categories, hierarchy.allSpecializations]);
+
+  const formSubjectCodeOptions = useMemo(() => {
+    if (!formData.specialization) return [] as { code: string; description: string }[];
+    const spec = hierarchy.allSpecializations.find(s => s.name === formData.specialization);
+    if (!spec) return [] as { code: string; description: string }[];
+    return hierarchy.getSubjects(spec.id).map(s => ({ code: s.code, description: s.description }));
+  }, [formData.specialization, hierarchy.allSpecializations, hierarchy.allSubjects]);
+
+  // --- Mutations ---
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       return await Questions.create({
         ...data,
-        created_by: 'admin',
+        created_by: "admin",
         approved: true,
-        status: 'approved'
+        status: "approved",
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-questions'] });
-      toast.success('Question created successfully');
+      queryClient.invalidateQueries({ queryKey: ["admin-questions"] });
+      toast.success("Question created successfully");
       resetForm();
     },
-    onError: (error) => {
-      toast.error('Failed to create question');
-      console.error(error);
-    }
+    onError: () => toast.error("Failed to create question"),
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string, data: Partial<typeof formData> }) => {
+    mutationFn: async ({ id, data }: { id: string; data: Partial<typeof formData> }) => {
       return await Questions.update(id, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-questions'] });
-      toast.success('Question updated successfully');
+      queryClient.invalidateQueries({ queryKey: ["admin-questions"] });
+      toast.success("Question updated");
       setEditingId(null);
       resetForm();
     },
-    onError: (error) => {
-      toast.error('Failed to update question');
-      console.error(error);
-    }
+    onError: () => toast.error("Failed to update question"),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return await Questions.delete(id);
+    mutationFn: async (id: string) => Questions.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-questions"] });
+      toast.success("Question deleted");
+    },
+    onError: () => toast.error("Failed to delete question"),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map((id) => Questions.delete(id)));
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-questions'] });
-      toast.success('Question deleted successfully');
+      queryClient.invalidateQueries({ queryKey: ["admin-questions"] });
+      setSelectedIds(new Set());
+      toast.success(`Deleted ${selectedIds.size} questions`);
     },
-    onError: (error) => {
-      toast.error('Failed to delete question');
-      console.error(error);
-    }
+    onError: () => toast.error("Bulk delete failed"),
   });
 
   const resetForm = () => {
@@ -101,8 +239,15 @@ export default function QuestionBankManager() {
       subject: "",
       grade_level: "",
       cognitive_level: "",
-      knowledge_dimension: ""
+      knowledge_dimension: "",
+      category: "",
+      specialization: "",
+      subject_code: "",
+      subject_description: "",
     });
+    setFormCustomCategory("");
+    setFormCustomSpecialization("");
+    setFormDifficultyDomain([]);
     setIsCreating(false);
     setEditingId(null);
   };
@@ -112,198 +257,527 @@ export default function QuestionBankManager() {
     setFormData({
       question_text: question.question_text,
       question_type: question.question_type as any,
-      choices: question.choices as any[],
+      choices: (question.choices as any[]) || [],
       correct_answer: question.correct_answer || "",
       topic: question.topic,
-      bloom_level: question.bloom_level,
-      difficulty: question.difficulty,
+      bloom_level: question.bloom_level || "",
+      difficulty: question.difficulty || "",
       subject: question.subject || "",
       grade_level: question.grade_level || "",
       cognitive_level: question.cognitive_level || "",
-      knowledge_dimension: question.knowledge_dimension || ""
+      knowledge_dimension: question.knowledge_dimension || "",
+      category: (question as any).category || "",
+      specialization: (question as any).specialization || "",
+      subject_code: (question as any).subject_code || "",
+      subject_description: (question as any).subject_description || "",
     });
+    setFormCustomCategory("");
+    setFormCustomSpecialization("");
+    setFormDifficultyDomain([]);
   };
 
   const handleSubmit = () => {
-    if (editingId) {
-      updateMutation.mutate({ id: editingId, data: formData });
-    } else {
-      createMutation.mutate(formData);
-    }
+    // Apply custom category/specialization if set
+    const finalData = { ...formData };
+    if (formCustomCategory) finalData.category = formCustomCategory;
+    if (formCustomSpecialization) finalData.specialization = formCustomSpecialization;
+
+    if (editingId) updateMutation.mutate({ id: editingId, data: finalData });
+    else createMutation.mutate(finalData);
   };
 
-  return (
-    <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-100">Question Bank Manager</h1>
-            <p className="text-slate-400">Full CRUD access to master question repository</p>
-          </div>
-          <Button 
-            onClick={() => setIsCreating(true)}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Question
-          </Button>
-        </div>
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
-        {/* Search */}
-        <Card className="bg-slate-900 border-slate-800">
-          <CardContent className="pt-6">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <Input
-                  placeholder="Search questions..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 bg-slate-800 border-slate-700 text-slate-100"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredQuestions.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filteredQuestions.map((q) => q.id)));
+  };
 
-        {/* Create/Edit Form */}
-        {(isCreating || editingId) && (
-          <Card className="bg-slate-900 border-slate-800">
-            <CardHeader>
-              <CardTitle className="text-slate-100">
-                {editingId ? 'Edit Question' : 'Create New Question'}
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                {editingId ? 'Update question details' : 'Add a new question to the bank'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label className="text-slate-200">Question Text</Label>
-                <Textarea
-                  value={formData.question_text}
-                  onChange={(e) => setFormData({ ...formData, question_text: e.target.value })}
-                  className="bg-slate-800 border-slate-700 text-slate-100"
-                  rows={3}
-                />
-              </div>
+  const clearFilters = () => {
+    setFilterCategory("all");
+    setFilterSpecialization("all");
+    setFilterSubjectCode("all");
+    setFilterSubjectDescription("");
+    setSearchQuery("");
+  };
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-slate-200">Topic</Label>
-                  <Input
-                    value={formData.topic}
-                    onChange={(e) => setFormData({ ...formData, topic: e.target.value })}
-                    className="bg-slate-800 border-slate-700 text-slate-100"
-                  />
-                </div>
+  const activeFilterCount = [filterCategory, filterSpecialization, filterSubjectCode].filter(
+    (f) => f !== "all"
+  ).length;
 
-                <div className="space-y-2">
-                  <Label className="text-slate-200">Bloom's Level</Label>
-                  <Select value={formData.bloom_level} onValueChange={(v) => setFormData({ ...formData, bloom_level: v })}>
-                    <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-100">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Remembering">Remembering</SelectItem>
-                      <SelectItem value="Understanding">Understanding</SelectItem>
-                      <SelectItem value="Applying">Applying</SelectItem>
-                      <SelectItem value="Analyzing">Analyzing</SelectItem>
-                      <SelectItem value="Evaluating">Evaluating</SelectItem>
-                      <SelectItem value="Creating">Creating</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+  const formatTimestamp = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const month = d.toLocaleString("default", { month: "short" });
+    const year = d.getFullYear();
+    return { month, year };
+  };
 
-                <div className="space-y-2">
-                  <Label className="text-slate-200">Difficulty</Label>
-                  <Select value={formData.difficulty} onValueChange={(v) => setFormData({ ...formData, difficulty: v })}>
-                    <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-100">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="easy">Easy</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="hard">Hard</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+  const handleDifficultyDomainToggle = (domain: string) => {
+    setFormDifficultyDomain((prev) => {
+      const next = prev.includes(domain) ? prev.filter((d) => d !== domain) : [...prev, domain];
+      // Reset cognitive level if it's no longer valid
+      if (next.length > 0) {
+        const validLevels = new Set<string>();
+        next.forEach((d) => DIFFICULTY_COGNITIVE_MAP[d]?.forEach((l) => validLevels.add(l)));
+        if (formData.cognitive_level && !validLevels.has(formData.cognitive_level)) {
+          setFormData((prev) => ({ ...prev, cognitive_level: "" }));
+        }
+      }
+      return next;
+    });
+  };
 
-                <div className="space-y-2">
-                  <Label className="text-slate-200">Subject</Label>
-                  <Input
-                    value={formData.subject}
-                    onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                    className="bg-slate-800 border-slate-700 text-slate-100"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <Button onClick={handleSubmit} className="bg-blue-600 hover:bg-blue-700">
-                  <Save className="h-4 w-4 mr-2" />
-                  {editingId ? 'Update' : 'Create'}
-                </Button>
-                <Button onClick={resetForm} variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800">
-                  <X className="h-4 w-4 mr-2" />
-                  Cancel
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+  const renderQuestionCard = (q: Question) => {
+    const qAny = q as any;
+    const ts = formatTimestamp(q.created_at);
+    return (
+      <div
+        key={q.id}
+        className="flex items-start gap-3 p-4 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors"
+      >
+        {isAdmin && (
+          <Checkbox
+            checked={selectedIds.has(q.id)}
+            onCheckedChange={() => toggleSelect(q.id)}
+            className="mt-1"
+          />
         )}
-
-        {/* Questions List */}
-        <div className="space-y-2">
-          {isLoading ? (
-            <Card className="bg-slate-900 border-slate-800">
-              <CardContent className="p-6 text-center text-slate-400">
-                Loading questions...
-              </CardContent>
-            </Card>
-          ) : questions && questions.length > 0 ? (
-            questions.map((q) => (
-              <Card key={q.id} className="bg-slate-900 border-slate-800 hover:border-slate-700 transition-colors">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <p className="text-slate-100 font-medium mb-2">{q.question_text}</p>
-                      <div className="flex gap-2 text-xs text-slate-400">
-                        <span className="px-2 py-1 bg-slate-800 rounded">{q.topic}</span>
-                        <span className="px-2 py-1 bg-slate-800 rounded">{q.bloom_level}</span>
-                        <span className="px-2 py-1 bg-slate-800 rounded">{q.difficulty}</span>
-                        <span className="px-2 py-1 bg-slate-800 rounded">Used: {q.used_count || 0}</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleEdit(q)}
-                        className="text-slate-300 hover:text-slate-100 hover:bg-slate-800"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deleteMutation.mutate(q.id)}
-                        className="text-red-400 hover:text-red-300 hover:bg-slate-800"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          ) : (
-            <Card className="bg-slate-900 border-slate-800">
-              <CardContent className="p-6 text-center text-slate-400">
-                No questions found. Create your first question!
-              </CardContent>
-            </Card>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground leading-relaxed">
+            {q.question_text}
+          </p>
+          <div className="flex flex-wrap items-center gap-1 mt-2 text-xs text-muted-foreground">
+            {qAny.category && (
+              <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
+                {qAny.category}
+              </Badge>
+            )}
+            {(qAny.category && qAny.specialization) && (
+              <span className="text-muted-foreground">|</span>
+            )}
+            {qAny.specialization && (
+              <Badge variant="secondary" className="text-xs">
+                {qAny.specialization}
+              </Badge>
+            )}
+            <span className="text-muted-foreground">|</span>
+            <Badge variant="outline" className="text-xs">
+              {ts.year}
+            </Badge>
+            <span className="text-muted-foreground">|</span>
+            <Badge variant="outline" className="text-xs">
+              {ts.month}
+            </Badge>
+          </div>
+        </div>
+        <div className="flex gap-1 shrink-0">
+          {isAdmin && (
+            <>
+              <Button size="icon" variant="ghost" onClick={() => handleEdit(q)}>
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="text-destructive"
+                onClick={() => deleteMutation.mutate(q.id)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>
           )}
         </div>
       </div>
+    );
+  };
+
+  // --- Render Form ---
+  const renderForm = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle>{editingId ? "Edit Question" : "Create New Question"}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Row 1: Category & Specialization */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Category</Label>
+            <Select
+              value={formCustomCategory ? "__custom__" : formData.category || undefined}
+              onValueChange={(v) => {
+                if (v === "__custom__") {
+                  setFormCustomCategory(" ");
+                  setFormData({ ...formData, category: "", specialization: "", subject_code: "", subject_description: "" });
+                } else {
+                  setFormCustomCategory("");
+                  setFormData({ ...formData, category: v, specialization: "", subject_code: "", subject_description: "" });
+                }
+              }}
+            >
+              <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+              <SelectContent>
+                {hierarchy.categories.map((c) => (
+                  <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                ))}
+                <SelectItem value="__custom__">Other (type below)</SelectItem>
+              </SelectContent>
+            </Select>
+            {formCustomCategory !== "" && (
+              <Input
+                placeholder="Enter custom category"
+                value={formCustomCategory.trim()}
+                onChange={(e) => setFormCustomCategory(e.target.value)}
+                className="mt-1"
+              />
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Specialization</Label>
+            <Select
+              value={formCustomSpecialization ? "__custom__" : formData.specialization || undefined}
+              onValueChange={(v) => {
+                if (v === "__custom__") {
+                  setFormCustomSpecialization(" ");
+                  setFormData({ ...formData, specialization: "", subject_code: "", subject_description: "" });
+                } else {
+                  setFormCustomSpecialization("");
+                  setFormData({ ...formData, specialization: v, subject_code: "", subject_description: "" });
+                }
+              }}
+              disabled={!formData.category && !formCustomCategory}
+            >
+              <SelectTrigger><SelectValue placeholder="Select specialization" /></SelectTrigger>
+              <SelectContent>
+                {formSpecializationOptions.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+                <SelectItem value="__custom__">Other (type below)</SelectItem>
+              </SelectContent>
+            </Select>
+            {formCustomSpecialization !== "" && (
+              <Input
+                placeholder="Enter custom specialization"
+                value={formCustomSpecialization.trim()}
+                onChange={(e) => setFormCustomSpecialization(e.target.value)}
+                className="mt-1"
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Row 2: Subject Code & Subject Description */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Subject Code</Label>
+            {formSubjectCodeOptions.length > 0 && !formCustomSpecialization ? (
+              <Select
+                value={formData.subject_code || undefined}
+                onValueChange={(v) => {
+                  const match = formSubjectCodeOptions.find(s => s.code === v);
+                  setFormData({ ...formData, subject_code: v, subject_description: match?.description || "" });
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select code" /></SelectTrigger>
+                <SelectContent>
+                  {formSubjectCodeOptions.map((s) => (
+                    <SelectItem key={s.code} value={s.code}>{s.code}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                placeholder="Enter subject code"
+                value={formData.subject_code}
+                onChange={(e) => setFormData({ ...formData, subject_code: e.target.value })}
+              />
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Subject Description</Label>
+            <Input
+              placeholder="Subject description"
+              value={formData.subject_description}
+              onChange={(e) => setFormData({ ...formData, subject_description: e.target.value })}
+              className={formData.subject_description && !formCustomSpecialization && formSubjectCodeOptions.length > 0 ? "bg-muted" : ""}
+              readOnly={!!formData.subject_description && !formCustomSpecialization && formSubjectCodeOptions.length > 0}
+            />
+          </div>
+        </div>
+
+        {/* Row 3: Question Text (large) */}
+        <div className="space-y-2">
+          <Label>Question Text</Label>
+          <Textarea
+            value={formData.question_text}
+            onChange={(e) => setFormData({ ...formData, question_text: e.target.value })}
+            rows={5}
+            placeholder="Enter question text..."
+            className="min-h-[120px]"
+          />
+        </div>
+
+        {/* Row 4: Cognitive Domain (difficulty checkboxes) + Cognitive Level */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Cognitive Domain (Difficulty)</Label>
+            <div className="flex flex-wrap gap-4 pt-1">
+              {["Easy", "Average", "Difficult"].map((domain) => (
+                <label key={domain} className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formDifficultyDomain.includes(domain)}
+                    onCheckedChange={() => handleDifficultyDomainToggle(domain)}
+                  />
+                  <span className="text-sm">{domain}</span>
+                </label>
+              ))}
+            </div>
+            {formDifficultyDomain.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Mapped levels: {formDifficultyDomain.flatMap((d) => DIFFICULTY_COGNITIVE_MAP[d] || []).join(", ")}
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Cognitive Level</Label>
+            <Select
+              value={formData.cognitive_level || undefined}
+              onValueChange={(v) => setFormData({ ...formData, cognitive_level: v })}
+            >
+              <SelectTrigger><SelectValue placeholder="Select cognitive level" /></SelectTrigger>
+              <SelectContent>
+                {availableCognitiveLevels.map((l) => (
+                  <SelectItem key={l} value={l}>{l}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button onClick={handleSubmit}>
+            <Save className="h-4 w-4 mr-2" />
+            {editingId ? "Update" : "Create"}
+          </Button>
+          <Button onClick={resetForm} variant="outline">
+            <X className="h-4 w-4 mr-2" />
+            Cancel
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Question Bank{isAdmin ? " Manager" : ""}</h1>
+          <p className="text-muted-foreground">
+            {isAdmin ? "Full CRUD access to master question repository" : "Browse and add questions to the repository"}
+          </p>
+        </div>
+        <Button onClick={() => setIsCreating(true)} size="lg">
+          <Plus className="h-4 w-4 mr-2" />
+          Add Question
+        </Button>
+      </div>
+
+      {/* Create/Edit Form */}
+      {(isCreating || (editingId && isAdmin)) && renderForm()}
+
+      <div className="flex flex-col lg:flex-row gap-4">
+        {/* Left Filter Panel */}
+        <div className="w-full lg:w-64 shrink-0 space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Filter className="h-4 w-4" />
+                Filters
+                {activeFilterCount > 0 && (
+                  <Badge variant="secondary" className="text-xs">{activeFilterCount}</Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Category */}
+              <div className="space-y-2">
+                <Label className="text-xs">Category</Label>
+                <Select value={filterCategory} onValueChange={handleCategoryChange}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {hierarchy.categories.map((c) => (
+                      <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Specialization */}
+              <div className="space-y-2">
+                <Label className="text-xs">Specialization</Label>
+                <Select
+                  value={filterSpecialization}
+                  onValueChange={handleSpecializationChange}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Specializations</SelectItem>
+                    {specializationOptions.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Subject Code */}
+              <div className="space-y-2">
+                <Label className="text-xs">Subject Code</Label>
+                <Select
+                  value={filterSubjectCode}
+                  onValueChange={handleSubjectCodeChange}
+                  disabled={subjectCodeOptions.length === 0}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Codes</SelectItem>
+                    {subjectCodeOptions.map((s) => (
+                      <SelectItem key={s.code} value={s.code}>
+                        {s.code} — {s.description}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Subject Description - auto-populated */}
+              {computedSubjectDescription && (
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Subject Description</Label>
+                  <p className="text-xs font-medium p-2 rounded bg-muted border">
+                    {computedSubjectDescription}
+                  </p>
+                </div>
+              )}
+
+              {activeFilterCount > 0 && (
+                <Button variant="ghost" size="sm" className="w-full text-xs" onClick={clearFilters}>
+                  Clear Filters
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1 space-y-3">
+          {/* Search + View Toggle Bar */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search questions, topics, tags..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant={activeView === "questions" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setActiveView("questions")}
+                className="gap-1.5"
+              >
+                <FileText className="h-4 w-4" />
+                Questions
+              </Button>
+              <Button
+                variant={activeView === "reports" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setActiveView("reports")}
+                className="gap-1.5"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Reports
+              </Button>
+              {isAdmin && (
+                <Button
+                  variant={activeView === "manage-filters" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setActiveView("manage-filters")}
+                  className="gap-1.5"
+                >
+                  <Settings2 className="h-4 w-4" />
+                  Manage Filters
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {activeView === "manage-filters" ? (
+            <FilterManagement />
+          ) : activeView === "reports" ? (
+            <QuestionBankReports questions={filteredQuestions} />
+          ) : (
+            <>
+              {/* Bulk Actions - Admin only */}
+              {isAdmin && selectedIds.size > 0 && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted border">
+                  <span className="text-sm font-medium">{selectedIds.size} selected</span>
+                  <Separator orientation="vertical" className="h-5" />
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => bulkDeleteMutation.mutate([...selectedIds])}
+                  >
+                    <Trash2 className="h-3 w-3 mr-1" />
+                    Delete
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
+                    Clear
+                  </Button>
+                </div>
+              )}
+
+              {/* Results count + select all */}
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <Checkbox
+                      checked={filteredQuestions.length > 0 && selectedIds.size === filteredQuestions.length}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                  )}
+                  <span>{filteredQuestions.length} questions</span>
+                </div>
+              </div>
+
+              {/* Questions Display */}
+              {isLoading ? (
+                <div className="text-center py-12 text-muted-foreground">Loading questions...</div>
+              ) : filteredQuestions.length === 0 ? (
+                <Card>
+                  <CardContent className="p-12 text-center text-muted-foreground">
+                    No questions found.{" "}
+                    {activeFilterCount > 0 ? "Try adjusting your filters." : "Create your first question!"}
+                  </CardContent>
+                </Card>
+              ) : (
+                <ScrollArea className="h-[calc(100vh-320px)]">
+                  <div className="space-y-2 pr-4">{filteredQuestions.map(renderQuestionCard)}</div>
+                </ScrollArea>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

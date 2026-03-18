@@ -150,7 +150,7 @@ export default function ApprovalWorkflow() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <AlertCircle className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
+                <AlertCircle className="h-8 w-8 text-accent mx-auto mb-2" />
                 <div className="text-2xl font-bold">{stats.totalPending}</div>
                 <div className="text-sm text-muted-foreground">Pending Review</div>
               </div>
@@ -159,7 +159,7 @@ export default function ApprovalWorkflow() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
+                <CheckCircle className="h-8 w-8 text-primary mx-auto mb-2" />
                 <div className="text-2xl font-bold">{stats.totalApproved}</div>
                 <div className="text-sm text-muted-foreground">Approved</div>
               </div>
@@ -168,7 +168,7 @@ export default function ApprovalWorkflow() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <XCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
+                <XCircle className="h-8 w-8 text-destructive mx-auto mb-2" />
                 <div className="text-2xl font-bold">{stats.totalRejected}</div>
                 <div className="text-sm text-muted-foreground">Rejected</div>
               </div>
@@ -177,7 +177,7 @@ export default function ApprovalWorkflow() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <Brain className="h-8 w-8 text-purple-500 mx-auto mb-2" />
+                <Brain className="h-8 w-8 text-secondary mx-auto mb-2" />
                 <div className="text-2xl font-bold">{(stats.avgConfidence * 100).toFixed(0)}%</div>
                 <div className="text-sm text-muted-foreground">Avg Confidence</div>
               </div>
@@ -211,7 +211,7 @@ export default function ApprovalWorkflow() {
         <CardContent>
           {pendingQuestions.length === 0 ? (
             <div className="text-center py-12">
-              <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+              <CheckCircle className="h-12 w-12 text-primary mx-auto mb-4" />
               <h3 className="text-lg font-semibold mb-2">All caught up!</h3>
               <p className="text-muted-foreground">No AI-generated questions pending approval.</p>
             </div>
@@ -231,7 +231,7 @@ export default function ApprovalWorkflow() {
                         <Badge variant="outline">{question.topic}</Badge>
                         <Badge variant="outline">{question.bloom_level}</Badge>
                         <Badge variant="outline">{question.difficulty}</Badge>
-                        <Badge className="bg-purple-100 text-purple-800">
+                        <Badge variant="secondary">
                           AI Confidence: {(question.ai_confidence_score * 100).toFixed(0)}%
                         </Badge>
                       </div>
@@ -244,7 +244,7 @@ export default function ApprovalWorkflow() {
                               key={key} 
                               className={`text-sm ${
                                 key === question.correct_answer
-                                  ? 'text-green-600 font-medium'
+                                  ? 'text-primary font-medium'
                                   : 'text-muted-foreground'
                               }`}
                             >

@@ -42,11 +42,11 @@ export default function AILogs() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'success':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-primary" />;
       case 'error':
-        return <XCircle className="h-4 w-4 text-red-500" />;
+        return <XCircle className="h-4 w-4 text-destructive" />;
       case 'warning':
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+        return <AlertTriangle className="h-4 w-4 text-accent" />;
       default:
         return <Brain className="h-4 w-4" />;
     }
@@ -90,7 +90,7 @@ export default function AILogs() {
               <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">94.2%</div>
+              <div className="text-2xl font-bold text-primary">94.2%</div>
               <p className="text-xs text-muted-foreground mt-1">Operations completed</p>
             </CardContent>
           </Card>
@@ -110,7 +110,7 @@ export default function AILogs() {
               <CardTitle className="text-sm font-medium">Pending Review</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600">12</div>
+              <div className="text-2xl font-bold text-accent">12</div>
               <p className="text-xs text-muted-foreground mt-1">Questions awaiting approval</p>
             </CardContent>
           </Card>

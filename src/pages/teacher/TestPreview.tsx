@@ -26,6 +26,34 @@ interface TestItem {
   topic?: string;
 }
 
+// Compute essay range display labels (e.g., "Q46–50") for items in a flat list
+function computeEssayRanges(items: TestItem[]): Record<number, string> {
+  const map: Record<number, string> = {};
+  const essayIndices: number[] = [];
+
+  items.forEach((item, idx) => {
+    const type = (item.question_type || item.type || '').toLowerCase();
+    if (type === 'essay') essayIndices.push(idx);
+  });
+
+  if (essayIndices.length === 0) return map;
+
+  // Use each essay's points to determine range
+  let rangeStart = essayIndices[0] + 1; // 1-based question number
+  essayIndices.forEach((itemIdx) => {
+    const points = items[itemIdx].points || 1;
+    if (points > 1) {
+      const rangeEnd = rangeStart + points - 1;
+      map[itemIdx] = `Q${rangeStart}–${rangeEnd}`;
+    } else {
+      map[itemIdx] = `Q${rangeStart}`;
+    }
+    rangeStart += points;
+  });
+
+  return map;
+}
+
 export default function TestPreview() {
   const { testId } = useParams<{ testId: string }>();
   const navigate = useNavigate();
@@ -102,6 +130,9 @@ export default function TestPreview() {
 
   const items: TestItem[] = Array.isArray(test.items) ? test.items : [];
   const totalPoints = items.reduce((sum, item) => sum + (item.points || 1), 0);
+
+  // Compute essay range display numbers
+  const essayRangeMap = computeEssayRanges(items);
 
   const getDifficultyColor = (difficulty?: string) => {
     switch (difficulty?.toLowerCase()) {
@@ -242,7 +273,7 @@ export default function TestPreview() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <Badge variant="outline" className="font-mono">
-                          Q{index + 1}
+                          {essayRangeMap[index] || `Q${index + 1}`}
                         </Badge>
                         {item.difficulty && (
                           <Badge className={getDifficultyColor(item.difficulty)}>
@@ -331,7 +362,7 @@ export default function TestPreview() {
                 const answer = getCorrectAnswer(item);
                 return (
                   <div key={item.id || index} className="p-3 bg-muted rounded-lg text-center">
-                    <div className="text-sm text-muted-foreground">Q{index + 1}</div>
+                    <div className="text-sm text-muted-foreground">{essayRangeMap[index] || `Q${index + 1}`}</div>
                     <div className="font-mono font-bold text-primary">
                       {answer !== undefined ? String(answer) : '—'}
                     </div>

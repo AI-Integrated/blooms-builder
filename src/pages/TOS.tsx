@@ -22,6 +22,7 @@ export interface TOSConfig {
   schoolYear: string
   totalItems: number
   preparedBy: string
+  checkedBy: string
   notedBy: string
   topics: Array<{
     name: string
@@ -57,6 +58,7 @@ const TOS = () => {
     schoolYear: "2024-2025",
     totalItems: 50,
     preparedBy: "",
+    checkedBy: "",
     notedBy: "",
     topics: [
       { name: "Requirements Engineering", hours: 10 },

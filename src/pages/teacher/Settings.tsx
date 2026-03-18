@@ -4,15 +4,29 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/lib/auth';
-import { Camera, Loader2, Save, User } from 'lucide-react';
+import { Camera, Loader2, Save, User, Shield, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-react';
+
+function PasswordRequirement({ met, label }: { met: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      {met ? (
+        <CheckCircle className="h-4 w-4 text-primary" />
+      ) : (
+        <XCircle className="h-4 w-4 text-muted-foreground" />
+      )}
+      <span className={met ? 'text-foreground' : 'text-muted-foreground'}>{label}</span>
+    </div>
+  );
+}
 
 interface ProfileData {
   full_name: string;
   email: string;
-  institution: string;
+  college: string;
   avatar_url: string;
 }
 
@@ -27,7 +41,7 @@ export default function Settings() {
   const [profile, setProfile] = useState<ProfileData>({
     full_name: '',
     email: '',
-    institution: '',
+    college: '',
     avatar_url: ''
   });
 
@@ -42,7 +56,7 @@ export default function Settings() {
       setLoading(true);
       const { data, error } = await supabase
         .from('profiles')
-        .select('full_name, email, institution, avatar_url')
+        .select('full_name, email, college, avatar_url')
         .eq('id', user?.id)
         .single();
 
@@ -51,7 +65,7 @@ export default function Settings() {
       setProfile({
         full_name: data?.full_name || '',
         email: data?.email || user?.email || '',
-        institution: data?.institution || '',
+        college: data?.college || '',
         avatar_url: data?.avatar_url || ''
       });
     } catch (error) {
@@ -70,7 +84,7 @@ export default function Settings() {
         .from('profiles')
         .update({
           full_name: profile.full_name,
-          institution: profile.institution,
+          college: profile.college,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id);
@@ -134,12 +148,13 @@ export default function Settings() {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
+      // Use signed URL for secure access (bucket is private)
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from('exports')
-        .getPublicUrl(filePath);
+        .createSignedUrl(filePath, 86400); // 24 hour expiry
 
-      const avatarUrl = urlData.publicUrl;
+      if (signedUrlError) throw signedUrlError;
+      const avatarUrl = signedUrlData.signedUrl;
 
       // Update profile
       const { error: updateError } = await supabase
@@ -204,7 +219,7 @@ export default function Settings() {
         <CardHeader>
           <CardTitle>Profile Information</CardTitle>
           <CardDescription>
-            Update your personal details. Your institution name will appear on generated TOS and printed outputs.
+            Update your personal details. Your college name will appear on generated TOS and printed outputs.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -272,12 +287,12 @@ export default function Settings() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="institution">Institution</Label>
+              <Label htmlFor="college">College</Label>
               <Input 
-                id="institution" 
-                placeholder="e.g., University of the Philippines"
-                value={profile.institution}
-                onChange={(e) => setProfile(prev => ({ ...prev, institution: e.target.value }))}
+                id="college" 
+                placeholder="e.g., College of Education"
+                value={profile.college}
+                onChange={(e) => setProfile(prev => ({ ...prev, college: e.target.value }))}
               />
               <p className="text-xs text-muted-foreground">
                 This will appear on your TOS headers and printed test outputs
@@ -304,6 +319,132 @@ export default function Settings() {
           </div>
         </CardContent>
       </Card>
+      {/* System Security */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            System Security
+          </CardTitle>
+          <CardDescription>Change your password with strong policy enforcement</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <SecurityPasswordForm user={user} />
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+function SecurityPasswordForm({ user }: { user: any }) {
+  const { toast } = useToast();
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const hasMinLength = newPassword.length >= 8;
+  const hasUppercase = /[A-Z]/.test(newPassword);
+  const hasLowercase = /[a-z]/.test(newPassword);
+  const hasNumber = /[0-9]/.test(newPassword);
+  const hasSpecial = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(newPassword);
+  const passwordsMatch = newPassword === confirmPassword && confirmPassword.length > 0;
+  const allRequirementsMet = hasMinLength && hasUppercase && hasLowercase && hasNumber && hasSpecial && passwordsMatch;
+
+  const handleChangePassword = async () => {
+    if (!allRequirementsMet) {
+      toast({ title: 'Error', description: 'Please meet all password requirements', variant: 'destructive' });
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user?.email || '',
+        password: currentPassword,
+      });
+      if (signInError) {
+        toast({ title: 'Error', description: 'Current password is incorrect', variant: 'destructive' });
+        setChangingPassword(false);
+        return;
+      }
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      toast({ title: 'Success', description: 'Password changed successfully. Your other sessions have been invalidated.' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to change password', variant: 'destructive' });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor="currentPassword">Current Password</Label>
+        <div className="relative">
+          <Input id="currentPassword" type={showCurrent ? 'text' : 'password'} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Enter current password" />
+          <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setShowCurrent(!showCurrent)}>
+            {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
+
+      <Separator />
+
+      <div className="space-y-2">
+        <Label htmlFor="newPassword">New Password</Label>
+        <div className="relative">
+          <Input id="newPassword" type={showNew ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" />
+          <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setShowNew(!showNew)}>
+            {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
+
+      {newPassword.length > 0 && (
+        <div className="rounded-lg border p-4 space-y-2 bg-muted/50">
+          <p className="text-sm font-medium mb-2">Password Requirements:</p>
+          <PasswordRequirement met={hasMinLength} label="At least 8 characters" />
+          <PasswordRequirement met={hasUppercase} label="At least one uppercase letter" />
+          <PasswordRequirement met={hasLowercase} label="At least one lowercase letter" />
+          <PasswordRequirement met={hasNumber} label="At least one number" />
+          <PasswordRequirement met={hasSpecial} label="At least one special character" />
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Label htmlFor="confirmPassword">Confirm New Password</Label>
+        <div className="relative">
+          <Input id="confirmPassword" type={showConfirm ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" />
+          <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setShowConfirm(!showConfirm)}>
+            {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+        {confirmPassword.length > 0 && !passwordsMatch && (
+          <p className="text-sm text-destructive">Passwords do not match</p>
+        )}
+      </div>
+
+      <Button onClick={handleChangePassword} disabled={!allRequirementsMet || changingPassword || !currentPassword}>
+        {changingPassword ? 'Changing Password...' : 'Change Password'}
+      </Button>
+
+      <Separator />
+
+      <div className="rounded-lg border p-4 bg-muted/30 space-y-2">
+        <p className="text-sm font-medium">Security Notes</p>
+        <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+          <li>Passwords are securely hashed server-side by Supabase (bcrypt)</li>
+          <li>All other sessions are invalidated after a password change</li>
+          <li>Account locks after multiple failed login attempts (managed by Supabase Auth)</li>
+        </ul>
+      </div>
+    </>
   );
 }

@@ -91,6 +91,7 @@ export default function TOSViewPage() {
           exam_period: data.exam_period || "",
           school_year: data.school_year || "",
           prepared_by: data.prepared_by || "",
+          checked_by: data.checked_by || "",
           noted_by: data.noted_by || "",
           created_at: data.created_at,
           total_items: data.total_items || 50,
@@ -112,6 +113,7 @@ export default function TOSViewPage() {
           school_year: data.school_year || "",
           total_items: data.total_items || 50,
           prepared_by: data.prepared_by || "",
+          checked_by: data.checked_by || "",
           noted_by: data.noted_by || "",
           topics,
         });

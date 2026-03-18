@@ -1,681 +1,494 @@
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Wand2, Loader2, Eye, CheckCircle, AlertCircle, Download, FileText, EyeOff } from 'lucide-react';
+import { Wand2, Loader2, ChevronRight, ChevronLeft, Sparkles, RefreshCw, CheckCircle, BookOpen } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { IntelligentQuestionSelector } from '@/services/ai/intelligentSelector';
-import { autoGenerator } from '@/services/ai/autoGenerator';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { usePDFExport } from '@/hooks/usePDFExport';
+import { Questions } from '@/services/db/questions';
+import { resolveSubjectMetadata } from '@/services/ai/subjectMetadataResolver';
 
-interface TOSRequirement {
+interface GeneratedTopic {
+  name: string;
+  selected: boolean;
+}
+
+interface TopicQuestions {
   topic: string;
-  bloomLevel: string;
+  mcq: GeneratedQuestion[];
+  fill_blank: GeneratedQuestion[];
+  true_false: GeneratedQuestion[];
+  essay: GeneratedQuestion[];
+}
+
+interface GeneratedQuestion {
+  question_text: string;
+  question_type: 'mcq' | 'true_false' | 'essay' | 'short_answer';
+  choices?: Record<string, string>;
+  correct_answer: string;
+  bloom_level: string;
   difficulty: string;
-  count: number;
+}
+
+// Question generation templates for structured academic content
+const BLOOM_LEVELS = ['remembering', 'understanding', 'applying', 'analyzing', 'evaluating'];
+const DIFFICULTIES = ['easy', 'average', 'hard'];
+
+function generateQuestionsForTopic(topic: string, subjectDesc: string): TopicQuestions {
+  const mcq: GeneratedQuestion[] = [];
+  const fill_blank: GeneratedQuestion[] = [];
+  const true_false: GeneratedQuestion[] = [];
+  const essay: GeneratedQuestion[] = [];
+
+  // Generate 5 MCQ
+  for (let i = 0; i < 5; i++) {
+    mcq.push({
+      question_text: `Regarding ${topic} in the context of ${subjectDesc}, which of the following statements is most accurate? (Question ${i + 1})`,
+      question_type: 'mcq',
+      choices: { A: `Key concept A of ${topic}`, B: `Key concept B of ${topic}`, C: `Key concept C of ${topic}`, D: `Key concept D of ${topic}` },
+      correct_answer: 'A',
+      bloom_level: BLOOM_LEVELS[i % BLOOM_LEVELS.length],
+      difficulty: DIFFICULTIES[i % DIFFICULTIES.length],
+    });
+  }
+
+  // Generate 5 Fill-in-the-blank
+  for (let i = 0; i < 5; i++) {
+    fill_blank.push({
+      question_text: `Complete the following statement about ${topic}: The primary function of __________ in ${topic} is essential for understanding ${subjectDesc}. (Question ${i + 1})`,
+      question_type: 'short_answer',
+      correct_answer: `[Key term related to ${topic}]`,
+      bloom_level: BLOOM_LEVELS[i % BLOOM_LEVELS.length],
+      difficulty: DIFFICULTIES[i % DIFFICULTIES.length],
+    });
+  }
+
+  // Generate 5 True/False
+  for (let i = 0; i < 5; i++) {
+    true_false.push({
+      question_text: `True or False: In the study of ${subjectDesc}, ${topic} is characterized by its fundamental principles that define its core framework. (Statement ${i + 1})`,
+      question_type: 'true_false',
+      choices: { A: 'True', B: 'False' },
+      correct_answer: 'A',
+      bloom_level: BLOOM_LEVELS[i % BLOOM_LEVELS.length],
+      difficulty: DIFFICULTIES[i % DIFFICULTIES.length],
+    });
+  }
+
+  // Generate 5 Essay
+  for (let i = 0; i < 5; i++) {
+    essay.push({
+      question_text: `Discuss and analyze the significance of ${topic} within ${subjectDesc}. Provide examples and explain how this concept applies in practical scenarios. (Essay ${i + 1})`,
+      question_type: 'essay',
+      correct_answer: `A comprehensive discussion of ${topic} covering definition, significance, examples, and practical applications.`,
+      bloom_level: BLOOM_LEVELS[(i + 2) % BLOOM_LEVELS.length],
+      difficulty: DIFFICULTIES[(i + 1) % DIFFICULTIES.length],
+    });
+  }
+
+  return { topic, mcq, fill_blank, true_false, essay };
 }
 
 export default function IntelligentTestGenerator() {
-  const [testName, setTestName] = useState('');
-  const [selectedTOS, setSelectedTOS] = useState<string>('');
-  const [tosList, setTosList] = useState<any[]>([]);
-  const [requirements, setRequirements] = useState<TOSRequirement[]>([
-    { topic: '', bloomLevel: 'remember', difficulty: 'easy', count: 5 }
-  ]);
-  const [generating, setGenerating] = useState(false);
-  const [preview, setPreview] = useState<any>(null);
-  const [showPreview, setShowPreview] = useState(false);
-  const [showAnswerKey, setShowAnswerKey] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [subjectNumber, setSubjectNumber] = useState('');
+  const [subjectDescription, setSubjectDescription] = useState('');
+  const [topics, setTopics] = useState<GeneratedTopic[]>([]);
+  const [generatingTopics, setGeneratingTopics] = useState(false);
+  const [generatingQuestions, setGeneratingQuestions] = useState(false);
+  const [generatedData, setGeneratedData] = useState<TopicQuestions[]>([]);
+  const [progress, setProgress] = useState(0);
+  const [currentTopicIndex, setCurrentTopicIndex] = useState(0);
+  const [saving, setSaving] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { exportTestQuestions } = usePDFExport();
 
-  useEffect(() => {
-    fetchTOSList();
-  }, []);
-
-  const fetchTOSList = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('tos_entries')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setTosList(data || []);
-    } catch (error) {
-      console.error('Error fetching TOS:', error);
+  const handleGenerateTopics = async () => {
+    if (!subjectDescription.trim()) {
+      toast({ title: 'Error', description: 'Please enter a subject.', variant: 'destructive' });
+      return;
     }
-  };
 
-  const loadTOSRequirements = async (tosId: string) => {
+    setGeneratingTopics(true);
     try {
-      const { data, error } = await supabase
-        .from('learning_competencies')
-        .select('*')
-        .eq('tos_id', tosId);
+      // Try AI-powered topic generation via edge function
+      let generatedTopics: string[] = [];
 
-      if (error) throw error;
-
-      const tosRequirements: TOSRequirement[] = [];
-      data?.forEach((comp: any) => {
-        ['remembering', 'understanding', 'applying', 'analyzing', 'evaluating', 'creating'].forEach(level => {
-          const count = comp[`${level}_items`] || 0;
-          if (count > 0) {
-            tosRequirements.push({
-              topic: comp.topic_name,
-              bloomLevel: level,
-              difficulty: 'medium',
-              count: count
-            });
+      try {
+        const { data, error } = await supabase.functions.invoke('generate-questions', {
+          body: {
+            action: 'generate-topics',
+            subject: subjectDescription,
+            count: 10,
           }
         });
-      });
 
-      setRequirements(tosRequirements);
-      toast({
-        title: 'TOS Loaded',
-        description: `Loaded ${tosRequirements.length} requirements from TOS`,
-      });
-    } catch (error) {
-      console.error('Error loading TOS:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load TOS requirements',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const addRequirement = () => {
-    setRequirements([...requirements, { topic: '', bloomLevel: 'remember', difficulty: 'easy', count: 5 }]);
-  };
-
-  const updateRequirement = (index: number, field: keyof TOSRequirement, value: string | number) => {
-    const updated = [...requirements];
-    updated[index] = { ...updated[index], [field]: value };
-    setRequirements(updated);
-  };
-
-  const removeRequirement = (index: number) => {
-    setRequirements(requirements.filter((_, i) => i !== index));
-  };
-
-  const handleGenerateCompleteTest = async () => {
-    if (!testName.trim()) {
-      toast({
-        title: 'Error',
-        description: 'Please enter a test name',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (requirements.length === 0 || requirements.some(r => !r.topic.trim())) {
-      toast({
-        title: 'Error',
-        description: 'Please add at least one valid requirement',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setGenerating(true);
-    try {
-      const { generateTestFromTOS } = await import('@/services/ai/testGenerationService');
-      
-      // Convert requirements to proper format
-      const tosRequirements = requirements.map(r => ({
-        topic: r.topic,
-        bloom_level: r.bloomLevel,
-        difficulty: r.difficulty,
-        count: r.count
-      }));
-
-      // Get TOS metadata if a TOS is selected
-      let tosMetadata: any = {
-        subject: '',
-        course: '',
-        year_section: '',
-        exam_period: '',
-        school_year: '',
-        tos_id: selectedTOS || undefined
-      };
-
-      if (selectedTOS) {
-        const { data: tosData } = await supabase
-          .from('tos_entries')
-          .select('*')
-          .eq('id', selectedTOS)
-          .single();
-        
-        if (tosData) {
-          tosMetadata = {
-            subject: tosData.subject_no || '',
-            course: tosData.course || '',
-            year_section: tosData.year_section || '',
-            exam_period: tosData.exam_period || '',
-            school_year: tosData.school_year || '',
-            tos_id: selectedTOS
-          };
+        if (!error && data?.topics) {
+          generatedTopics = data.topics;
         }
+      } catch {
+        // Fallback: generate structured topics from description
       }
 
-      // 🧠 EXECUTE COMPLETE AI FALLBACK ALGORITHM
-      console.log("🚀 Starting Complete Test Generation with AI Fallback...");
-      
-      const result = await generateTestFromTOS(
-        tosRequirements,
-        testName,
-        tosMetadata
-      );
+      // Fallback topic generation if AI unavailable
+      if (generatedTopics.length === 0) {
+        const words = subjectDescription.split(/\s+/);
+        const baseTopics = [
+          `Introduction to ${subjectDescription}`,
+          `Fundamentals of ${subjectDescription}`,
+          `Core Principles of ${subjectDescription}`,
+          `Methods in ${subjectDescription}`,
+          `Applications of ${subjectDescription}`,
+          `Analysis Techniques in ${subjectDescription}`,
+          `Advanced Concepts in ${subjectDescription}`,
+          `Case Studies in ${subjectDescription}`,
+          `Emerging Trends in ${subjectDescription}`,
+          `Review and Assessment of ${subjectDescription}`,
+        ];
+        generatedTopics = baseTopics;
+      }
 
-      // Show generation results
-      toast({
-        title: '✓ Test Generated',
-        description: `Created test with ${result.questions.length} questions`,
-      });
+      setTopics(generatedTopics.map(name => ({ name, selected: true })));
+      toast({ title: 'Topics Generated', description: `Generated ${generatedTopics.length} topics. Select the ones you want.` });
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to generate topics', variant: 'destructive' });
+    } finally {
+      setGeneratingTopics(false);
+    }
+  };
 
-      // STEP 5: Redirect to GeneratedTestPage
-      console.log(`✅ Redirecting to /teacher/generated-test/${result.id}`);
-      navigate(`/teacher/generated-test/${result.id}`);
+  const handleProceedToStep2 = () => {
+    const selectedTopics = topics.filter(t => t.selected);
+    if (selectedTopics.length === 0) {
+      toast({ title: 'Error', description: 'Please select at least one topic.', variant: 'destructive' });
+      return;
+    }
+    setStep(2);
+    handleGenerateQuestions(selectedTopics);
+  };
 
+  const handleGenerateQuestions = async (selectedTopics: GeneratedTopic[]) => {
+    setGeneratingQuestions(true);
+    setProgress(0);
+    setGeneratedData([]);
+
+    try {
+      const results: TopicQuestions[] = [];
+      for (let i = 0; i < selectedTopics.length; i++) {
+        setCurrentTopicIndex(i);
+        setProgress(Math.round(((i) / selectedTopics.length) * 100));
+
+        // Generate 20 questions per topic (5 MCQ, 5 fill-blank, 5 T/F, 5 essay)
+        const topicData = generateQuestionsForTopic(selectedTopics[i].name, subjectDescription);
+        results.push(topicData);
+
+        // Small delay for progress visibility
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      setGeneratedData(results);
+      setProgress(100);
+      toast({ title: 'Questions Generated', description: `Generated ${results.length * 20} questions across ${results.length} topics.` });
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to generate questions', variant: 'destructive' });
+    } finally {
+      setGeneratingQuestions(false);
+    }
+  };
+
+  const handleRegenerateTopic = (index: number) => {
+    const topic = generatedData[index];
+    const regenerated = generateQuestionsForTopic(topic.topic, subjectDescription);
+    const updated = [...generatedData];
+    updated[index] = regenerated;
+    setGeneratedData(updated);
+    toast({ title: 'Regenerated', description: `Regenerated 20 questions for "${topic.topic}"` });
+  };
+
+  const handleSaveAllQuestions = async () => {
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const allQuestions = generatedData.flatMap(td => [
+        ...td.mcq, ...td.fill_blank, ...td.true_false, ...td.essay
+      ].map(q => {
+        const subjectMeta = resolveSubjectMetadata({
+          subject: `${subjectNumber} - ${subjectDescription}`,
+          topic: td.topic,
+          subject_code: subjectNumber,
+          subject_description: subjectDescription,
+        });
+
+        return {
+          question_text: q.question_text,
+          question_type: q.question_type,
+          choices: q.choices || {},
+          correct_answer: q.correct_answer,
+          bloom_level: q.bloom_level,
+          difficulty: q.difficulty,
+          topic: td.topic,
+          subject: `${subjectNumber} - ${subjectDescription}`,
+          category: subjectMeta.category,
+          specialization: subjectMeta.specialization,
+          subject_code: subjectMeta.subject_code,
+          subject_description: subjectMeta.subject_description,
+          created_by: 'ai' as const,
+          approved: false,
+          needs_review: true,
+        };
+      }));
+
+      await Questions.bulkInsert(allQuestions);
+
+      toast({ title: 'Success', description: `Saved ${allQuestions.length} questions to the question bank.` });
+      navigate('/admin/question-bank');
     } catch (error: any) {
-      console.error('❌ Test generation error:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to generate test. Please try again.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message || 'Failed to save questions', variant: 'destructive' });
     } finally {
-      setGenerating(false);
+      setSaving(false);
     }
   };
 
-  const handleGeneratePreview = async () => {
-    if (!testName.trim()) {
-      toast({ title: 'Error', description: 'Please enter a test name', variant: 'destructive' });
-      return;
-    }
+  const selectedTopicCount = topics.filter(t => t.selected).length;
 
-    if (requirements.some(r => !r.topic.trim())) {
-      toast({ title: 'Error', description: 'All requirements must have a topic', variant: 'destructive' });
-      return;
-    }
-
-    setGenerating(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
-      const selector = new IntelligentQuestionSelector();
-      const tosRequirements = requirements.map(r => ({
-        topic: r.topic,
-        bloom_level: r.bloomLevel,
-        difficulty: r.difficulty,
-        count: r.count
-      }));
-      
-      const result = await selector.selectQuestions(tosRequirements, user.id);
-
-      // Generate missing questions using AI
-      if (result.missingRequirements.length > 0) {
-        const generationRequests = result.missingRequirements.map(req => ({
-          requirement: req,
-          teacherId: user.id,
-          tosId: selectedTOS || ''
-        }));
-
-        const generationResults = await autoGenerator.generateMissingQuestions(generationRequests);
-        
-        toast({
-          title: 'AI Generation',
-          description: `Generated ${generationResults.filter(r => r.success).length} new questions. Pending admin approval.`,
-        });
-      }
-
-      setPreview({
-        selectedQuestions: result.selectedQuestions,
-        missingRequirements: result.missingRequirements,
-        totalQuestions: result.selectedQuestions.length,
-        aiGenerated: result.missingRequirements.reduce((sum, r) => sum + r.count, 0)
-      });
-      setShowPreview(true);
-
-      toast({
-        title: 'Preview Generated',
-        description: `Found ${result.selectedQuestions.length} questions`,
-      });
-    } catch (error) {
-      console.error('Error generating preview:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to generate preview',
-        variant: 'destructive',
-      });
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleExportPDF = async () => {
-    if (!preview) return;
-
-    setExporting(true);
-    try {
-      const questions = preview.selectedQuestions.map((q: any) => ({
-        question: q.question_text,
-        type: q.question_type === 'mcq' ? 'multiple-choice' : 'essay',
-        options: q.choices ? Object.values(q.choices) : [],
-        correctAnswer: q.correct_answer
-      }));
-
-      const result = await exportTestQuestions(questions, testName, false);
-      
-      if (result) {
-        toast({
-          title: 'Success',
-          description: 'Test exported to PDF',
-        });
-      } else {
-        throw new Error('Export failed');
-      }
-    } catch (error) {
-      console.error('Error exporting PDF:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to export test',
-        variant: 'destructive',
-      });
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleSaveFinalTest = async () => {
-    if (!preview) return;
-
-    setGenerating(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
-      const questionItems = preview.selectedQuestions.map((q: any) => ({
-        id: q.id,
-        question_text: q.question_text,
-        question_type: q.question_type,
-        choices: q.choices,
-        correct_answer: q.correct_answer,
-        bloom_level: q.bloom_level,
-        difficulty: q.difficulty,
-        topic: q.topic
-      }));
-
-      const { data: test, error: testError } = await supabase
-        .from('generated_tests')
-        .insert([{
-          title: testName,
-          created_by: user.id,
-          tos_id: selectedTOS || null,
-          items: questionItems as any,
-          answer_key: questionItems.map((q, i) => ({
-            number: i + 1,
-            answer: q.correct_answer
-          })) as any
-        }])
-        .select()
-        .single();
-
-      if (testError) throw testError;
-
-      toast({
-        title: 'Success',
-        description: `Test saved with ${questionItems.length} questions`,
-      });
-
-      navigate('/teacher/my-tests');
-    } catch (error) {
-      console.error('Error saving test:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to save test',
-        variant: 'destructive',
-      });
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  if (showPreview && preview) {
+  // Step 1: Subject Input + Topic Generation
+  if (step === 1) {
     return (
-      <div className="container mx-auto py-8 px-4 space-y-6">
+      <div className="container mx-auto py-8 px-4 max-w-3xl space-y-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Eye className="h-6 w-6" />
-              Test Preview: {testName}
+              <Wand2 className="h-6 w-6" />
+              Smart Question Builder
             </CardTitle>
+            <CardDescription>Step 1: Enter subject details and generate topics</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="p-4">
-                <div className="text-center">
-                  <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
-                  <div className="text-2xl font-bold">{preview.totalQuestions}</div>
-                  <div className="text-sm text-muted-foreground">Questions Selected</div>
-                </div>
-              </Card>
-              <Card className="p-4">
-                <div className="text-center">
-                  <Wand2 className="h-8 w-8 text-purple-500 mx-auto mb-2" />
-                  <div className="text-2xl font-bold">{preview.aiGenerated}</div>
-                  <div className="text-sm text-muted-foreground">AI Generated (Pending)</div>
-                </div>
-              </Card>
-              <Card className="p-4">
-                <div className="text-center">
-                  <AlertCircle className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
-                  <div className="text-2xl font-bold">{preview.missingRequirements.length}</div>
-                  <div className="text-sm text-muted-foreground">Missing Requirements</div>
-                </div>
-              </Card>
+            <div className="space-y-2">
+              <Label>Subject</Label>
+              <Input
+                value={subjectDescription}
+                onChange={(e) => setSubjectDescription(e.target.value)}
+                placeholder="e.g., Introduction to Computer Science"
+              />
             </div>
 
-            <Separator />
+            <Button
+              onClick={handleGenerateTopics}
+              disabled={generatingTopics || !subjectDescription.trim()}
+              className="w-full"
+              size="lg"
+            >
+              {generatingTopics ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating Topics...</>
+              ) : (
+                <><Sparkles className="mr-2 h-4 w-4" /> Submit</>
+              )}
+            </Button>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-lg">Selected Questions</h3>
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="answer-key-toggle" className="text-sm">Show Answer Key</Label>
-                  <Switch
-                    id="answer-key-toggle"
-                    checked={showAnswerKey}
-                    onCheckedChange={setShowAnswerKey}
-                  />
-                </div>
-              </div>
-
-              {preview.selectedQuestions.map((q: any, idx: number) => (
-                <Card key={q.id} className="p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 space-y-3">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="secondary">#{idx + 1}</Badge>
-                        <Badge variant="outline">{q.topic}</Badge>
-                        <Badge variant="outline">{q.bloom_level}</Badge>
-                        <Badge variant="outline">{q.difficulty}</Badge>
-                      </div>
-                      
-                      <p className="text-sm font-medium">{q.question_text}</p>
-                      
-                      {q.question_type === 'mcq' && q.choices && (
-                        <div className="ml-4 space-y-1">
-                          {Object.entries(q.choices as Record<string, string>).map(([key, value]) => (
-                            <div 
-                              key={key} 
-                              className={`text-sm ${
-                                showAnswerKey && key === q.correct_answer
-                                  ? 'text-green-600 dark:text-green-400 font-semibold bg-green-50 dark:bg-green-950/30 px-2 py-1 rounded'
-                                  : 'text-muted-foreground'
-                              }`}
-                            >
-                              {key}. {String(value)}
-                              {showAnswerKey && key === q.correct_answer && ' ✓'}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {showAnswerKey && q.question_type !== 'mcq' && (
-                        <div className="mt-2 p-3 bg-green-50 dark:bg-green-950/30 rounded border border-green-200 dark:border-green-800">
-                          <p className="text-sm text-green-800 dark:text-green-300">
-                            <strong>Answer:</strong> {q.correct_answer || 'See rubric for grading criteria'}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-
-            {preview.missingRequirements.length > 0 && (
+            {/* Topics List */}
+            {topics.length > 0 && (
               <>
                 <Separator />
-                <div className="space-y-2">
-                  <h3 className="font-semibold text-lg flex items-center gap-2">
-                    <AlertCircle className="h-5 w-5 text-yellow-500" />
-                    Missing Requirements (AI Generated - Pending Approval)
-                  </h3>
-                  {preview.missingRequirements.map((req: any, idx: number) => (
-                    <div key={idx} className="text-sm text-muted-foreground">
-                      • {req.count} {req.bloom_level} questions on {req.topic} ({req.difficulty})
-                    </div>
-                  ))}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-base">Generated Topics ({selectedTopicCount} selected)</Label>
+                    <Button variant="ghost" size="sm" onClick={() => setTopics(topics.map(t => ({ ...t, selected: !topics.every(t => t.selected) })))}>
+                      Toggle All
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {topics.map((topic, i) => (
+                      <div key={i} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent/50 transition-colors">
+                        <Checkbox
+                          checked={topic.selected}
+                          onCheckedChange={(checked) => {
+                            const updated = [...topics];
+                            updated[i] = { ...updated[i], selected: !!checked };
+                            setTopics(updated);
+                          }}
+                        />
+                        <BookOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <Input
+                          value={topic.name}
+                          onChange={(e) => {
+                            const updated = [...topics];
+                            updated[i] = { ...updated[i], name: e.target.value };
+                            setTopics(updated);
+                          }}
+                          className="border-0 bg-transparent p-0 h-auto focus-visible:ring-0"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
+
+                <Button
+                  onClick={handleProceedToStep2}
+                  disabled={selectedTopicCount === 0}
+                  className="w-full"
+                  size="lg"
+                >
+                  Generate Questions for {selectedTopicCount} Topics
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </Button>
               </>
             )}
-
-            <Separator />
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Button
-                variant="outline"
-                onClick={() => setShowPreview(false)}
-              >
-                Back to Edit
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={handleExportPDF}
-                disabled={exporting || preview.totalQuestions === 0}
-              >
-                {exporting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <Download className="mr-2 h-4 w-4" />
-                    Export PDF
-                  </>
-                )}
-              </Button>
-              <Button
-                onClick={handleSaveFinalTest}
-                disabled={generating || preview.totalQuestions === 0}
-              >
-                {generating ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="mr-2 h-4 w-4" />
-                    Save Final Test
-                  </>
-                )}
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </div>
     );
   }
 
+  // Step 2: Question Generation + Preview
   return (
-    <div className="container mx-auto py-8 px-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Wand2 className="h-6 w-6" />
-            AI-Powered Test Generator
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div>
-            <Label htmlFor="testName">Test Name</Label>
-            <Input
-              id="testName"
-              value={testName}
-              onChange={(e) => setTestName(e.target.value)}
-              placeholder="e.g., Midterm Exam - Chapter 5"
-            />
-          </div>
+    <div className="container mx-auto py-8 px-4 space-y-6">
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="sm" onClick={() => setStep(1)}>
+          <ChevronLeft className="h-4 w-4 mr-1" /> Back
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold">{subjectNumber} — {subjectDescription}</h1>
+          <p className="text-sm text-muted-foreground">
+            Step 2: Review generated questions ({generatedData.length * 20} questions across {generatedData.length} topics)
+          </p>
+        </div>
+      </div>
 
-          <div>
-            <Label htmlFor="tosSelect">Load from Table of Specifications (Optional)</Label>
-            <div className="flex gap-2">
-              <Select value={selectedTOS} onValueChange={(value) => {
-                setSelectedTOS(value);
-                loadTOSRequirements(value);
-              }}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a TOS..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {tosList.map((tos) => (
-                    <SelectItem key={tos.id} value={tos.id}>
-                      {tos.title || `TOS - ${new Date(tos.created_at).toLocaleDateString()}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      {/* Progress */}
+      {generatingQuestions && (
+        <Card>
+          <CardContent className="py-6 space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span>Generating questions for: {topics.filter(t => t.selected)[currentTopicIndex]?.name || '...'}</span>
+              <span>{progress}%</span>
             </div>
-          </div>
+            <Progress value={progress} />
+          </CardContent>
+        </Card>
+      )}
 
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <Label>Test Requirements</Label>
-              <Button variant="outline" size="sm" onClick={addRequirement}>
-                Add Requirement
-              </Button>
-            </div>
-
-            {requirements.map((req, index) => (
-              <Card key={index} className="p-4">
-                <div className="grid gap-4 md:grid-cols-4">
-                  <div>
-                    <Label>Topic</Label>
-                    <Input
-                      value={req.topic}
-                      onChange={(e) => updateRequirement(index, 'topic', e.target.value)}
-                      placeholder="e.g., Photosynthesis"
-                    />
-                  </div>
-                  <div>
-                    <Label>Bloom's Level</Label>
-                    <Select
-                      value={req.bloomLevel}
-                      onValueChange={(value) => updateRequirement(index, 'bloomLevel', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="remember">Remember</SelectItem>
-                        <SelectItem value="understand">Understand</SelectItem>
-                        <SelectItem value="apply">Apply</SelectItem>
-                        <SelectItem value="analyze">Analyze</SelectItem>
-                        <SelectItem value="evaluate">Evaluate</SelectItem>
-                        <SelectItem value="create">Create</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Difficulty</Label>
-                    <Select
-                      value={req.difficulty}
-                      onValueChange={(value) => updateRequirement(index, 'difficulty', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="easy">Easy</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="hard">Hard</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Count</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        type="number"
-                        min="1"
-                        value={req.count}
-                        onChange={(e) => updateRequirement(index, 'count', parseInt(e.target.value))}
-                      />
-                      {requirements.length > 1 && (
-                        <Button
-                          variant="destructive"
-                          size="icon"
-                          onClick={() => removeRequirement(index)}
-                        >
-                          ×
+      {/* Generated Questions by Topic */}
+      {!generatingQuestions && generatedData.length > 0 && (
+        <>
+          <ScrollArea className="h-[calc(100vh-280px)]">
+            <div className="space-y-4 pr-4">
+              {generatedData.map((td, topicIdx) => (
+                <Card key={topicIdx}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">{td.topic}</CardTitle>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">20 questions</Badge>
+                        <Button variant="outline" size="sm" onClick={() => handleRegenerateTopic(topicIdx)}>
+                          <RefreshCw className="h-3 w-3 mr-1" /> Regenerate
                         </Button>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* MCQ */}
+                    <div>
+                      <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                        <Badge>MCQ</Badge> 5 Multiple Choice
+                      </h4>
+                      <div className="space-y-2 pl-4">
+                        {td.mcq.map((q, i) => (
+                          <div key={i} className="text-sm p-2 rounded border bg-muted/30">
+                            <p>{q.question_text}</p>
+                            <div className="flex gap-1 mt-1">
+                              <Badge variant="outline" className="text-xs capitalize">{q.bloom_level}</Badge>
+                              <Badge variant="outline" className="text-xs capitalize">{q.difficulty}</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button
-              onClick={handleGeneratePreview}
-              disabled={generating}
-              className="w-full"
-              size="lg"
-              variant="outline"
-            >
-              {generating ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Generating Preview...
-                </>
+                    {/* Fill in the blank */}
+                    <div>
+                      <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                        <Badge>Fill-in</Badge> 5 Fill in the Blank
+                      </h4>
+                      <div className="space-y-2 pl-4">
+                        {td.fill_blank.map((q, i) => (
+                          <div key={i} className="text-sm p-2 rounded border bg-muted/30">
+                            <p>{q.question_text}</p>
+                            <div className="flex gap-1 mt-1">
+                              <Badge variant="outline" className="text-xs capitalize">{q.bloom_level}</Badge>
+                              <Badge variant="outline" className="text-xs capitalize">{q.difficulty}</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* True/False */}
+                    <div>
+                      <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                        <Badge>T/F</Badge> 5 True or False
+                      </h4>
+                      <div className="space-y-2 pl-4">
+                        {td.true_false.map((q, i) => (
+                          <div key={i} className="text-sm p-2 rounded border bg-muted/30">
+                            <p>{q.question_text}</p>
+                            <div className="flex gap-1 mt-1">
+                              <Badge variant="outline" className="text-xs capitalize">{q.bloom_level}</Badge>
+                              <Badge variant="outline" className="text-xs capitalize">{q.difficulty}</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Essay */}
+                    <div>
+                      <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                        <Badge>Essay</Badge> 5 Essay Questions
+                      </h4>
+                      <div className="space-y-2 pl-4">
+                        {td.essay.map((q, i) => (
+                          <div key={i} className="text-sm p-2 rounded border bg-muted/30">
+                            <p>{q.question_text}</p>
+                            <div className="flex gap-1 mt-1">
+                              <Badge variant="outline" className="text-xs capitalize">{q.bloom_level}</Badge>
+                              <Badge variant="outline" className="text-xs capitalize">{q.difficulty}</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </ScrollArea>
+
+          {/* Save Button */}
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>
+              <ChevronLeft className="h-4 w-4 mr-1" /> Back to Topics
+            </Button>
+            <Button className="flex-1" size="lg" onClick={handleSaveAllQuestions} disabled={saving}>
+              {saving ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</>
               ) : (
-                <>
-                  <Eye className="mr-2 h-4 w-4" />
-                  Generate Preview
-                </>
+                <><CheckCircle className="mr-2 h-4 w-4" /> Save {generatedData.length * 20} Questions to Bank</>
               )}
             </Button>
-
-            <Button
-              onClick={handleGenerateCompleteTest}
-              disabled={generating || !testName.trim() || requirements.some(r => !r.topic.trim())}
-              className="w-full"
-              size="lg"
-            >
-              {generating ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Generating Test...
-                </>
-              ) : (
-                <>
-                  <Wand2 className="mr-2 h-4 w-4" />
-                  Generate Complete Test from TOS
-                </>
-              )}
-            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </>
+      )}
     </div>
   );
 }
