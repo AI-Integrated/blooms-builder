@@ -269,57 +269,25 @@ export default function BulkImport({
     }
   };
 
-  const validateRow = (row: any, index: number): string[] => {
+  /** Validate AFTER normalization - only check truly essential fields */
+  const validateNormalized = (q: Partial<ParsedQuestion>, index: number): string[] => {
     const errors: string[] = [];
-
-    // Required: Question Text
-    if (!row.Question && !row.question_text && !row['Question Text']) {
-      errors.push(`Row ${index + 1}: Missing question text`);
+    if (!q.question_text || q.question_text.trim().length < 5) {
+      errors.push(`Row ${index + 1}: Missing or too short question text`);
     }
-
-    // Required: Category
-    if (!row.Category && !row.category) {
-      errors.push(`Row ${index + 1}: Missing category`);
-    }
-
-    // Required: Specialization
-    if (!row.Specialization && !row.specialization) {
-      errors.push(`Row ${index + 1}: Missing specialization`);
-    }
-
-    // Required: Subject Code
-    if (!row.SubjectCode && !row.subject_code && !row['Subject Code']) {
-      errors.push(`Row ${index + 1}: Missing subject code`);
-    }
-
-    // Required: Subject Description
-    if (!row.SubjectDescription && !row.subject_description && !row['Subject Description']) {
-      errors.push(`Row ${index + 1}: Missing subject description`);
-    }
-
-    // Required: Options (A-D for MCQ)
-    const type = (row.Type || row.type || row.question_type || 'mcq').toLowerCase();
-    if (type === 'mcq' || type.includes('multiple')) {
-      const hasOptions = ['A', 'B', 'C', 'D'].some(letter =>
-        row[letter] || row[`Choice ${letter}`] || row[`choice_${letter.toLowerCase()}`]
-      );
-      if (!hasOptions) {
-        errors.push(`Row ${index + 1}: Missing answer options (A, B, C, D) for MCQ`);
+    if (q.question_type === 'mcq') {
+      const choiceCount = q.choices ? Object.keys(q.choices).length : 0;
+      if (choiceCount < 2) {
+        errors.push(`Row ${index + 1}: MCQ needs at least 2 answer choices`);
       }
     }
-
-    // Required: Correct Answer
-    if (!row.Correct && !row.correct_answer && !row['Correct Answer']) {
-      errors.push(`Row ${index + 1}: Missing correct answer`);
-    }
-
     return errors;
   };
 
   const normalizeRow = (row: any): Partial<ParsedQuestion> => {
-    const questionText = row.Question || row.question_text || row['Question Text'] || '';
+    const questionText = row.Question || row.question_text || row['Question Text'] || row.question || '';
     const topic = row.Topic || row.topic || '';
-    const type = (row.Type || row.type || row.question_type || 'mcq').toLowerCase();
+    const type = (row.Type || row.type || row.question_type || '').toLowerCase();
 
     let question_type: ParsedQuestion['question_type'] = 'mcq';
     if (type.includes('true') || type.includes('false') || type === 'tf') {
@@ -334,38 +302,40 @@ export default function BulkImport({
     if (question_type === 'mcq') {
       choices = {};
       ['A', 'B', 'C', 'D', 'E', 'F'].forEach((letter) => {
-        const choice = row[letter] || row[`Choice ${letter}`] || row[`choice_${letter.toLowerCase()}`];
-        if (choice && choice.trim()) {
-          choices![letter] = choice.trim();
+        const choice = row[letter] || row[`Choice ${letter}`] || row[`choice_${letter.toLowerCase()}`] || row[letter.toLowerCase()];
+        if (choice && String(choice).trim()) {
+          choices![letter] = String(choice).trim();
         }
       });
+      // If no choices found, auto-detect type
       if (Object.keys(choices).length === 0) {
-        choices = { A: 'Option A', B: 'Option B', C: 'Option C', D: 'Option D' };
+        question_type = questionText.length > 100 ? 'essay' : 'short_answer';
+        choices = undefined;
       }
     }
 
-    // Read metadata columns from CSV
+    // Read metadata columns from CSV - all optional
     const csvCategory = row.Category || row.category || '';
     const csvSpecialization = row.Specialization || row.specialization || '';
     const csvSubjectCode = row.SubjectCode || row.subject_code || row['Subject Code'] || '';
     const csvSubjectDescription = row.SubjectDescription || row.subject_description || row['Subject Description'] || '';
 
-    // Handle topic: if missing, use subject description as default, otherwise leave as provided or empty
-    const finalTopic = topic.trim() || csvSubjectDescription.trim() || '';
+    // Topic defaults: use subject description, then 'General'
+    const finalTopic = topic.trim() || csvSubjectDescription.trim() || 'General';
 
     return {
       topic: finalTopic,
       question_text: questionText.trim(),
       question_type,
       choices,
-      correct_answer: row.Correct || row.correct_answer || row['Correct Answer'] || 'A',
-      bloom_level: row.Bloom || row.bloom_level || row['Bloom Level'],
+      correct_answer: row.Correct || row.correct_answer || row['Correct Answer'] || row.Answer || row.answer || (question_type === 'mcq' ? 'A' : ''),
+      bloom_level: row.Bloom || row.bloom_level || row['Bloom Level'] || row['Bloom'],
       difficulty: row.Difficulty || row.difficulty,
       knowledge_dimension: row.KnowledgeDimension || row.knowledge_dimension || row['Knowledge Dimension'],
       subject: row.Subject || row.subject || undefined,
       grade_level: row['Grade Level'] || row.grade_level || undefined,
       term: row.Term || row.term || undefined,
-      tags: row.Tags ? (Array.isArray(row.Tags) ? row.Tags : row.Tags.split(',').map((t: string) => t.trim())) : undefined,
+      tags: row.Tags ? (Array.isArray(row.Tags) ? row.Tags : String(row.Tags).split(',').map((t: string) => t.trim())) : undefined,
       category: csvCategory.trim() || undefined,
       specialization: csvSpecialization.trim() || undefined,
       subject_code: csvSubjectCode.trim() || undefined,
