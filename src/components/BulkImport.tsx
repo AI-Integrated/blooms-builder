@@ -141,51 +141,113 @@ export default function BulkImport({
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
       
-      let text = '';
+      let fullText = '';
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
         const pageText = textContent.items.map((item: any) => item.str).join(' ');
-        text += pageText + '\n';
+        fullText += pageText + '\n';
       }
+
       const questions: any[] = [];
-      const questionBlocks = text.split(/\n?\d+\.\s+/).filter(block => block.trim());
+
+      // Pattern 1: Numbered questions (1. Question text)
+      const numberedPattern = /(?:^|\n)\s*(\d+)\.\s+(.+?)(?=(?:\n\s*\d+\.\s+)|\n*$)/gs;
+      let match;
+      const blocks: { num: string; text: string }[] = [];
       
-      questionBlocks.forEach((block) => {
-        const lines = block.split('\n').filter(line => line.trim());
-        if (lines.length === 0) return;
-        const questionText = lines[0].trim();
+      // Split by numbered items more robustly
+      const lines = fullText.split('\n');
+      let currentBlock = '';
+      let currentNum = '';
+      
+      for (const line of lines) {
+        const numMatch = line.match(/^\s*(\d+)[.)]\s+(.+)/);
+        if (numMatch) {
+          if (currentNum && currentBlock.trim()) {
+            blocks.push({ num: currentNum, text: currentBlock.trim() });
+          }
+          currentNum = numMatch[1];
+          currentBlock = numMatch[2];
+        } else if (currentNum) {
+          currentBlock += ' ' + line;
+        }
+      }
+      if (currentNum && currentBlock.trim()) {
+        blocks.push({ num: currentNum, text: currentBlock.trim() });
+      }
+
+      for (const block of blocks) {
+        const blockLines = block.text.split(/(?=[A-F][.)]\s)/);
+        const questionText = blockLines[0].trim();
+        if (!questionText || questionText.length < 5) continue;
+
         const choices: Record<string, string> = {};
         let correctAnswer = '';
-        
-        lines.slice(1).forEach(line => {
-          const choiceMatch = line.match(/^([A-F])\.\s*(.+)/);
+
+        for (const segment of blockLines.slice(1)) {
+          const choiceMatch = segment.match(/^([A-F])[.)]\s*(.+)/);
           if (choiceMatch) {
-            const [, letter, text] = choiceMatch;
-            choices[letter] = text.trim();
-            if (line.includes('*') || line.includes('✓')) {
+            let choiceText = choiceMatch[2].trim();
+            const letter = choiceMatch[1];
+            if (choiceText.includes('*') || choiceText.includes('✓')) {
               correctAnswer = letter;
+              choiceText = choiceText.replace(/[*✓]/g, '').trim();
+            }
+            choices[letter] = choiceText;
+          }
+        }
+
+        // Also try inline choices: A. xxx B. xxx C. xxx D. xxx
+        if (Object.keys(choices).length === 0) {
+          const inlineMatch = block.text.match(/([A-D])[.)]\s*([^A-D]+?)(?=\s+[A-D][.)]\s|$)/g);
+          if (inlineMatch && inlineMatch.length >= 2) {
+            for (const m of inlineMatch) {
+              const cm = m.match(/^([A-D])[.)]\s*(.+)/);
+              if (cm) {
+                let ct = cm[2].trim();
+                if (ct.includes('*') || ct.includes('✓')) {
+                  correctAnswer = cm[1];
+                  ct = ct.replace(/[*✓]/g, '').trim();
+                }
+                choices[cm[1]] = ct;
+              }
             }
           }
-        });
-        
-        let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
-        if (Object.keys(choices).length === 0) {
-          questionType = 'essay';
-        } else if (Object.keys(choices).length === 2 && 
-                   (choices.A?.toLowerCase().includes('true') || 
-                    choices.A?.toLowerCase().includes('false'))) {
-          questionType = 'true_false';
         }
-        
+
+        let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
+        const choiceCount = Object.keys(choices).length;
+        if (choiceCount === 0) {
+          questionType = questionText.length > 100 ? 'essay' : 'short_answer';
+        } else if (choiceCount === 2) {
+          const vals = Object.values(choices).map(v => v.toLowerCase());
+          if (vals.some(v => v.includes('true')) && vals.some(v => v.includes('false'))) {
+            questionType = 'true_false';
+          }
+        }
+
         questions.push({
           Question: questionText,
           Type: questionType,
-          ...choices,
-          Correct: correctAnswer || 'A',
-          Topic: selectedTopic,
+          ...(choiceCount > 0 ? choices : {}),
+          Correct: correctAnswer || (choiceCount > 0 ? 'A' : ''),
+          Topic: selectedTopic || 'General',
         });
-      });
+      }
+
+      // Fallback: if no numbered questions found, try splitting by blank lines
+      if (questions.length === 0) {
+        const paragraphs = fullText.split(/\n\s*\n/).filter(p => p.trim().length > 10);
+        for (const para of paragraphs) {
+          questions.push({
+            Question: para.trim().substring(0, 500),
+            Type: 'short_answer',
+            Correct: '',
+            Topic: selectedTopic || 'General',
+          });
+        }
+      }
       
       return questions;
     } catch (error) {
