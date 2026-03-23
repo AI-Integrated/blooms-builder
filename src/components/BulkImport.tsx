@@ -141,51 +141,113 @@ export default function BulkImport({
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
       
-      let text = '';
+      let fullText = '';
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
         const pageText = textContent.items.map((item: any) => item.str).join(' ');
-        text += pageText + '\n';
+        fullText += pageText + '\n';
       }
+
       const questions: any[] = [];
-      const questionBlocks = text.split(/\n?\d+\.\s+/).filter(block => block.trim());
+
+      // Pattern 1: Numbered questions (1. Question text)
+      const numberedPattern = /(?:^|\n)\s*(\d+)\.\s+(.+?)(?=(?:\n\s*\d+\.\s+)|\n*$)/gs;
+      let match;
+      const blocks: { num: string; text: string }[] = [];
       
-      questionBlocks.forEach((block) => {
-        const lines = block.split('\n').filter(line => line.trim());
-        if (lines.length === 0) return;
-        const questionText = lines[0].trim();
+      // Split by numbered items more robustly
+      const lines = fullText.split('\n');
+      let currentBlock = '';
+      let currentNum = '';
+      
+      for (const line of lines) {
+        const numMatch = line.match(/^\s*(\d+)[.)]\s+(.+)/);
+        if (numMatch) {
+          if (currentNum && currentBlock.trim()) {
+            blocks.push({ num: currentNum, text: currentBlock.trim() });
+          }
+          currentNum = numMatch[1];
+          currentBlock = numMatch[2];
+        } else if (currentNum) {
+          currentBlock += ' ' + line;
+        }
+      }
+      if (currentNum && currentBlock.trim()) {
+        blocks.push({ num: currentNum, text: currentBlock.trim() });
+      }
+
+      for (const block of blocks) {
+        const blockLines = block.text.split(/(?=[A-F][.)]\s)/);
+        const questionText = blockLines[0].trim();
+        if (!questionText || questionText.length < 5) continue;
+
         const choices: Record<string, string> = {};
         let correctAnswer = '';
-        
-        lines.slice(1).forEach(line => {
-          const choiceMatch = line.match(/^([A-F])\.\s*(.+)/);
+
+        for (const segment of blockLines.slice(1)) {
+          const choiceMatch = segment.match(/^([A-F])[.)]\s*(.+)/);
           if (choiceMatch) {
-            const [, letter, text] = choiceMatch;
-            choices[letter] = text.trim();
-            if (line.includes('*') || line.includes('✓')) {
+            let choiceText = choiceMatch[2].trim();
+            const letter = choiceMatch[1];
+            if (choiceText.includes('*') || choiceText.includes('✓')) {
               correctAnswer = letter;
+              choiceText = choiceText.replace(/[*✓]/g, '').trim();
+            }
+            choices[letter] = choiceText;
+          }
+        }
+
+        // Also try inline choices: A. xxx B. xxx C. xxx D. xxx
+        if (Object.keys(choices).length === 0) {
+          const inlineMatch = block.text.match(/([A-D])[.)]\s*([^A-D]+?)(?=\s+[A-D][.)]\s|$)/g);
+          if (inlineMatch && inlineMatch.length >= 2) {
+            for (const m of inlineMatch) {
+              const cm = m.match(/^([A-D])[.)]\s*(.+)/);
+              if (cm) {
+                let ct = cm[2].trim();
+                if (ct.includes('*') || ct.includes('✓')) {
+                  correctAnswer = cm[1];
+                  ct = ct.replace(/[*✓]/g, '').trim();
+                }
+                choices[cm[1]] = ct;
+              }
             }
           }
-        });
-        
-        let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
-        if (Object.keys(choices).length === 0) {
-          questionType = 'essay';
-        } else if (Object.keys(choices).length === 2 && 
-                   (choices.A?.toLowerCase().includes('true') || 
-                    choices.A?.toLowerCase().includes('false'))) {
-          questionType = 'true_false';
         }
-        
+
+        let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
+        const choiceCount = Object.keys(choices).length;
+        if (choiceCount === 0) {
+          questionType = questionText.length > 100 ? 'essay' : 'short_answer';
+        } else if (choiceCount === 2) {
+          const vals = Object.values(choices).map(v => v.toLowerCase());
+          if (vals.some(v => v.includes('true')) && vals.some(v => v.includes('false'))) {
+            questionType = 'true_false';
+          }
+        }
+
         questions.push({
           Question: questionText,
           Type: questionType,
-          ...choices,
-          Correct: correctAnswer || 'A',
-          Topic: selectedTopic,
+          ...(choiceCount > 0 ? choices : {}),
+          Correct: correctAnswer || (choiceCount > 0 ? 'A' : ''),
+          Topic: selectedTopic || 'General',
         });
-      });
+      }
+
+      // Fallback: if no numbered questions found, try splitting by blank lines
+      if (questions.length === 0) {
+        const paragraphs = fullText.split(/\n\s*\n/).filter(p => p.trim().length > 10);
+        for (const para of paragraphs) {
+          questions.push({
+            Question: para.trim().substring(0, 500),
+            Type: 'short_answer',
+            Correct: '',
+            Topic: selectedTopic || 'General',
+          });
+        }
+      }
       
       return questions;
     } catch (error) {
@@ -207,57 +269,25 @@ export default function BulkImport({
     }
   };
 
-  const validateRow = (row: any, index: number): string[] => {
+  /** Validate AFTER normalization - only check truly essential fields */
+  const validateNormalized = (q: Partial<ParsedQuestion>, index: number): string[] => {
     const errors: string[] = [];
-
-    // Required: Question Text
-    if (!row.Question && !row.question_text && !row['Question Text']) {
-      errors.push(`Row ${index + 1}: Missing question text`);
+    if (!q.question_text || q.question_text.trim().length < 5) {
+      errors.push(`Row ${index + 1}: Missing or too short question text`);
     }
-
-    // Required: Category
-    if (!row.Category && !row.category) {
-      errors.push(`Row ${index + 1}: Missing category`);
-    }
-
-    // Required: Specialization
-    if (!row.Specialization && !row.specialization) {
-      errors.push(`Row ${index + 1}: Missing specialization`);
-    }
-
-    // Required: Subject Code
-    if (!row.SubjectCode && !row.subject_code && !row['Subject Code']) {
-      errors.push(`Row ${index + 1}: Missing subject code`);
-    }
-
-    // Required: Subject Description
-    if (!row.SubjectDescription && !row.subject_description && !row['Subject Description']) {
-      errors.push(`Row ${index + 1}: Missing subject description`);
-    }
-
-    // Required: Options (A-D for MCQ)
-    const type = (row.Type || row.type || row.question_type || 'mcq').toLowerCase();
-    if (type === 'mcq' || type.includes('multiple')) {
-      const hasOptions = ['A', 'B', 'C', 'D'].some(letter =>
-        row[letter] || row[`Choice ${letter}`] || row[`choice_${letter.toLowerCase()}`]
-      );
-      if (!hasOptions) {
-        errors.push(`Row ${index + 1}: Missing answer options (A, B, C, D) for MCQ`);
+    if (q.question_type === 'mcq') {
+      const choiceCount = q.choices ? Object.keys(q.choices).length : 0;
+      if (choiceCount < 2) {
+        errors.push(`Row ${index + 1}: MCQ needs at least 2 answer choices`);
       }
     }
-
-    // Required: Correct Answer
-    if (!row.Correct && !row.correct_answer && !row['Correct Answer']) {
-      errors.push(`Row ${index + 1}: Missing correct answer`);
-    }
-
     return errors;
   };
 
   const normalizeRow = (row: any): Partial<ParsedQuestion> => {
-    const questionText = row.Question || row.question_text || row['Question Text'] || '';
+    const questionText = row.Question || row.question_text || row['Question Text'] || row.question || '';
     const topic = row.Topic || row.topic || '';
-    const type = (row.Type || row.type || row.question_type || 'mcq').toLowerCase();
+    const type = (row.Type || row.type || row.question_type || '').toLowerCase();
 
     let question_type: ParsedQuestion['question_type'] = 'mcq';
     if (type.includes('true') || type.includes('false') || type === 'tf') {
@@ -272,38 +302,40 @@ export default function BulkImport({
     if (question_type === 'mcq') {
       choices = {};
       ['A', 'B', 'C', 'D', 'E', 'F'].forEach((letter) => {
-        const choice = row[letter] || row[`Choice ${letter}`] || row[`choice_${letter.toLowerCase()}`];
-        if (choice && choice.trim()) {
-          choices![letter] = choice.trim();
+        const choice = row[letter] || row[`Choice ${letter}`] || row[`choice_${letter.toLowerCase()}`] || row[letter.toLowerCase()];
+        if (choice && String(choice).trim()) {
+          choices![letter] = String(choice).trim();
         }
       });
+      // If no choices found, auto-detect type
       if (Object.keys(choices).length === 0) {
-        choices = { A: 'Option A', B: 'Option B', C: 'Option C', D: 'Option D' };
+        question_type = questionText.length > 100 ? 'essay' : 'short_answer';
+        choices = undefined;
       }
     }
 
-    // Read metadata columns from CSV
+    // Read metadata columns from CSV - all optional
     const csvCategory = row.Category || row.category || '';
     const csvSpecialization = row.Specialization || row.specialization || '';
     const csvSubjectCode = row.SubjectCode || row.subject_code || row['Subject Code'] || '';
     const csvSubjectDescription = row.SubjectDescription || row.subject_description || row['Subject Description'] || '';
 
-    // Handle topic: if missing, use subject description as default, otherwise leave as provided or empty
-    const finalTopic = topic.trim() || csvSubjectDescription.trim() || '';
+    // Topic defaults: use subject description, then 'General'
+    const finalTopic = topic.trim() || csvSubjectDescription.trim() || 'General';
 
     return {
       topic: finalTopic,
       question_text: questionText.trim(),
       question_type,
       choices,
-      correct_answer: row.Correct || row.correct_answer || row['Correct Answer'] || 'A',
-      bloom_level: row.Bloom || row.bloom_level || row['Bloom Level'],
+      correct_answer: row.Correct || row.correct_answer || row['Correct Answer'] || row.Answer || row.answer || (question_type === 'mcq' ? 'A' : ''),
+      bloom_level: row.Bloom || row.bloom_level || row['Bloom Level'] || row['Bloom'],
       difficulty: row.Difficulty || row.difficulty,
       knowledge_dimension: row.KnowledgeDimension || row.knowledge_dimension || row['Knowledge Dimension'],
       subject: row.Subject || row.subject || undefined,
       grade_level: row['Grade Level'] || row.grade_level || undefined,
       term: row.Term || row.term || undefined,
-      tags: row.Tags ? (Array.isArray(row.Tags) ? row.Tags : row.Tags.split(',').map((t: string) => t.trim())) : undefined,
+      tags: row.Tags ? (Array.isArray(row.Tags) ? row.Tags : String(row.Tags).split(',').map((t: string) => t.trim())) : undefined,
       category: csvCategory.trim() || undefined,
       specialization: csvSpecialization.trim() || undefined,
       subject_code: csvSubjectCode.trim() || undefined,
@@ -335,28 +367,41 @@ export default function BulkImport({
         setProgress(20);
       }
 
-      setCurrentStep('Validating data...');
-      const validationErrors: string[] = [];
+      setCurrentStep('Normalizing and validating data...');
+      const validationWarnings: string[] = [];
       const normalizedData: ParsedQuestion[] = [];
+      let skippedCount = 0;
 
       rawData.forEach((row, index) => {
-        const rowErrors = validateRow(row, index);
-        validationErrors.push(...rowErrors);
-        if (rowErrors.length === 0) {
-          const normalized = normalizeRow(row);
-          normalizedData.push({
-            ...normalized,
-            created_by: 'teacher',
-            approved: false,
-            needs_review: true,
-          } as ParsedQuestion);
+        // Normalize FIRST (apply defaults for missing optional fields)
+        const normalized = normalizeRow(row);
+        
+        // Validate AFTER normalization - only filter out truly incomplete entries
+        const rowErrors = validateNormalized(normalized, index);
+        if (rowErrors.length > 0) {
+          validationWarnings.push(...rowErrors);
+          skippedCount++;
+          return; // Skip this row, don't block the entire import
         }
+
+        normalizedData.push({
+          ...normalized,
+          created_by: 'teacher',
+          approved: false,
+          needs_review: true,
+        } as ParsedQuestion);
       });
 
-      if (validationErrors.length > 0) {
-        setErrors(validationErrors);
+      if (normalizedData.length === 0) {
+        setErrors(['No valid questions found in the file. Each row needs at least question text (5+ characters).']);
         setIsProcessing(false);
         return;
+      }
+
+      if (skippedCount > 0) {
+        validationWarnings.unshift(`${skippedCount} rows skipped due to missing/invalid data. ${normalizedData.length} valid questions will be processed.`);
+        setErrors(validationWarnings);
+        // Don't return — continue processing valid rows
       }
 
       setProgress(40);
@@ -731,19 +776,19 @@ export default function BulkImport({
         </Card>
       )}
 
-      {/* Errors */}
+      {/* Warnings/Errors - shown as warning when import continues, destructive when blocked */}
       {errors.length > 0 && (
-        <Alert variant="destructive">
+        <Alert variant={importStep === 'upload' ? 'destructive' : 'default'}>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             <div className="space-y-1">
-              <p className="font-medium">Import errors found:</p>
+              <p className="font-medium">{importStep === 'upload' ? 'Import blocked:' : 'Import warnings (skipped rows):'}</p>
               <ul className="list-disc list-inside space-y-1">
                 {errors.slice(0, 10).map((error, index) => (
                   <li key={index} className="text-sm">{error}</li>
                 ))}
               </ul>
-              {errors.length > 10 && <p className="text-sm">... and {errors.length - 10} more errors</p>}
+              {errors.length > 10 && <p className="text-sm">... and {errors.length - 10} more warnings</p>}
             </div>
           </AlertDescription>
         </Alert>
