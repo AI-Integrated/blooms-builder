@@ -776,19 +776,19 @@ export default function BulkImport({
         </Card>
       )}
 
-      {/* Errors */}
+      {/* Warnings/Errors - shown as warning when import continues, destructive when blocked */}
       {errors.length > 0 && (
-        <Alert variant="destructive">
+        <Alert variant={importStep === 'upload' ? 'destructive' : 'default'}>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             <div className="space-y-1">
-              <p className="font-medium">Import errors found:</p>
+              <p className="font-medium">{importStep === 'upload' ? 'Import blocked:' : 'Import warnings (skipped rows):'}</p>
               <ul className="list-disc list-inside space-y-1">
                 {errors.slice(0, 10).map((error, index) => (
                   <li key={index} className="text-sm">{error}</li>
                 ))}
               </ul>
-              {errors.length > 10 && <p className="text-sm">... and {errors.length - 10} more errors</p>}
+              {errors.length > 10 && <p className="text-sm">... and {errors.length - 10} more warnings</p>}
             </div>
           </AlertDescription>
         </Alert>
