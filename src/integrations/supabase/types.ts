@@ -14,6 +14,112 @@ export type Database = {
   }
   public: {
     Tables: {
+      academic_categories: {
+        Row: {
+          created_at: string
+          deleted: boolean
+          deleted_at: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      academic_specializations: {
+        Row: {
+          category_id: string
+          created_at: string
+          deleted: boolean
+          deleted_at: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "academic_specializations_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "academic_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      academic_subjects: {
+        Row: {
+          code: string
+          created_at: string
+          deleted: boolean
+          deleted_at: string | null
+          description: string
+          id: string
+          specialization_id: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          description: string
+          id?: string
+          specialization_id: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          deleted?: boolean
+          deleted_at?: string | null
+          description?: string
+          id?: string
+          specialization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "academic_subjects_specialization_id_fkey"
+            columns: ["specialization_id"]
+            isOneToOne: false
+            referencedRelation: "academic_specializations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       activity_log: {
         Row: {
           action: string
@@ -615,6 +721,7 @@ export type Database = {
       profiles: {
         Row: {
           avatar_url: string | null
+          college: string | null
           created_at: string
           email: string
           full_name: string
@@ -624,6 +731,7 @@ export type Database = {
         }
         Insert: {
           avatar_url?: string | null
+          college?: string | null
           created_at?: string
           email: string
           full_name?: string
@@ -633,6 +741,7 @@ export type Database = {
         }
         Update: {
           avatar_url?: string | null
+          college?: string | null
           created_at?: string
           email?: string
           full_name?: string
@@ -921,6 +1030,7 @@ export type Database = {
           approved: boolean
           approved_by: string | null
           bloom_level: string | null
+          category: string | null
           choices: Json | null
           classification_confidence: number | null
           cognitive_level: string | null
@@ -941,8 +1051,11 @@ export type Database = {
           readability_score: number | null
           search_vector: unknown
           semantic_vector: string | null
+          specialization: string | null
           status: string | null
           subject: string | null
+          subject_code: string | null
+          subject_description: string | null
           tags: string[] | null
           term: string | null
           topic: string
@@ -962,6 +1075,7 @@ export type Database = {
           approved?: boolean
           approved_by?: string | null
           bloom_level?: string | null
+          category?: string | null
           choices?: Json | null
           classification_confidence?: number | null
           cognitive_level?: string | null
@@ -982,8 +1096,11 @@ export type Database = {
           readability_score?: number | null
           search_vector?: unknown
           semantic_vector?: string | null
+          specialization?: string | null
           status?: string | null
           subject?: string | null
+          subject_code?: string | null
+          subject_description?: string | null
           tags?: string[] | null
           term?: string | null
           topic: string
@@ -1003,6 +1120,7 @@ export type Database = {
           approved?: boolean
           approved_by?: string | null
           bloom_level?: string | null
+          category?: string | null
           choices?: Json | null
           classification_confidence?: number | null
           cognitive_level?: string | null
@@ -1023,8 +1141,11 @@ export type Database = {
           readability_score?: number | null
           search_vector?: unknown
           semantic_vector?: string | null
+          specialization?: string | null
           status?: string | null
           subject?: string | null
+          subject_code?: string | null
+          subject_description?: string | null
           tags?: string[] | null
           term?: string | null
           topic?: string
@@ -1292,6 +1413,27 @@ export type Database = {
           metric_name?: string
           metric_unit?: string | null
           metric_value?: number
+        }
+        Relationships: []
+      }
+      system_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
         }
         Relationships: []
       }
@@ -1757,6 +1899,7 @@ export type Database = {
       tos_entries: {
         Row: {
           bloom_distribution: Json | null
+          checked_by: string | null
           course: string
           created_at: string
           created_by: string | null
@@ -1778,6 +1921,7 @@ export type Database = {
         }
         Insert: {
           bloom_distribution?: Json | null
+          checked_by?: string | null
           course: string
           created_at?: string
           created_by?: string | null
@@ -1799,6 +1943,7 @@ export type Database = {
         }
         Update: {
           bloom_distribution?: Json | null
+          checked_by?: string | null
           course?: string
           created_at?: string
           created_by?: string | null
@@ -1973,6 +2118,10 @@ export type Database = {
     }
     Functions: {
       assign_admin_role: { Args: { user_email: string }; Returns: undefined }
+      assign_user_role: {
+        Args: { new_role: string; target_user_id: string }
+        Returns: undefined
+      }
       calculate_similarity_metrics: {
         Args: never
         Returns: {
