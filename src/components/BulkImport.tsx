@@ -367,28 +367,41 @@ export default function BulkImport({
         setProgress(20);
       }
 
-      setCurrentStep('Validating data...');
-      const validationErrors: string[] = [];
+      setCurrentStep('Normalizing and validating data...');
+      const validationWarnings: string[] = [];
       const normalizedData: ParsedQuestion[] = [];
+      let skippedCount = 0;
 
       rawData.forEach((row, index) => {
-        const rowErrors = validateRow(row, index);
-        validationErrors.push(...rowErrors);
-        if (rowErrors.length === 0) {
-          const normalized = normalizeRow(row);
-          normalizedData.push({
-            ...normalized,
-            created_by: 'teacher',
-            approved: false,
-            needs_review: true,
-          } as ParsedQuestion);
+        // Normalize FIRST (apply defaults for missing optional fields)
+        const normalized = normalizeRow(row);
+        
+        // Validate AFTER normalization - only filter out truly incomplete entries
+        const rowErrors = validateNormalized(normalized, index);
+        if (rowErrors.length > 0) {
+          validationWarnings.push(...rowErrors);
+          skippedCount++;
+          return; // Skip this row, don't block the entire import
         }
+
+        normalizedData.push({
+          ...normalized,
+          created_by: 'teacher',
+          approved: false,
+          needs_review: true,
+        } as ParsedQuestion);
       });
 
-      if (validationErrors.length > 0) {
-        setErrors(validationErrors);
+      if (normalizedData.length === 0) {
+        setErrors(['No valid questions found in the file. Each row needs at least question text (5+ characters).']);
         setIsProcessing(false);
         return;
+      }
+
+      if (skippedCount > 0) {
+        validationWarnings.unshift(`${skippedCount} rows skipped due to missing/invalid data. ${normalizedData.length} valid questions will be processed.`);
+        setErrors(validationWarnings);
+        // Don't return — continue processing valid rows
       }
 
       setProgress(40);
