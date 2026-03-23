@@ -8,6 +8,21 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
+// ============= UUID GENERATOR =============
+function generateUUID(): string {
+  // Try native crypto.randomUUID first (preferred)
+  if (typeof globalThis !== 'undefined' && globalThis.crypto && globalThis.crypto.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  // Fallback to RFC 4122 v4 UUID generation
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 // ============= TYPES =============
 
 interface TopicDistribution {
@@ -1262,7 +1277,7 @@ CRITICAL RULES:
     }
     
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       question_text: normalizeQuestionText(q.text || `Analyze the key aspects of ${topic} in the context of ${bloom.toLowerCase()} level understanding.`),
       question_type: 'mcq',
       choices: choices,
@@ -1380,7 +1395,7 @@ Return ONLY valid JSON:
     else correctAnswer = 'True';
     
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       question_text: q.text,
       question_type: 'true_false',
       choices: { 'True': 'True', 'False': 'False' },
@@ -1497,7 +1512,7 @@ Return ONLY valid JSON:
     const intent = intents[idx];
     
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       question_text: q.text,
       question_type: 'short_answer',
       correct_answer: q.correct_answer,
@@ -1613,7 +1628,7 @@ Return ONLY valid JSON:
     const intent = intents[idx];
     
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       question_text: q.text,
       question_type: 'essay',
       correct_answer: null,
