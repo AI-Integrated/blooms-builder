@@ -212,88 +212,99 @@ export default function BulkImport({
         fullText += pageText + '\n';
       }
 
-      // Step 1: Extract global metadata from the full text
+      // Step 1: Extract global metadata
       const globalMeta = extractPDFMetadata(fullText);
       console.log('PDF global metadata extracted:', globalMeta);
 
       const questions: any[] = [];
 
-      // Step 2: Split into numbered blocks
-      const lines = fullText.split('\n');
-      const blocks: { num: string; text: string }[] = [];
-      let currentBlock = '';
-      let currentNum = '';
-      
-      for (const line of lines) {
-        const numMatch = line.match(/^\s*(\d+)[.)]\s+(.+)/);
-        if (numMatch) {
-          if (currentNum && currentBlock.trim()) {
-            blocks.push({ num: currentNum, text: currentBlock.trim() });
-          }
-          currentNum = numMatch[1];
-          currentBlock = numMatch[2];
-        } else if (currentNum) {
-          currentBlock += ' ' + line;
-        }
-      }
-      if (currentNum && currentBlock.trim()) {
-        blocks.push({ num: currentNum, text: currentBlock.trim() });
+      // Step 2: Split into question blocks using Q1., Q2., 1., 1), etc.
+      // Match patterns: "Q1.", "Q1)", "1.", "1)" with optional leading whitespace
+      const questionBlockRegex = /(?:^|\n)\s*(?:Q\.?\s*)?(\d+)\s*[.)]\s+/gi;
+      const matches: { index: number; num: string }[] = [];
+      let match: RegExpExecArray | null;
+      while ((match = questionBlockRegex.exec(fullText)) !== null) {
+        matches.push({ index: match.index, num: match[1] });
       }
 
-      // Step 3: Filter blocks — only keep actual questions, skip metadata blocks
+      // Extract each block's text (from this match to next match)
+      const blocks: { num: string; text: string }[] = [];
+      for (let i = 0; i < matches.length; i++) {
+        const start = matches[i].index;
+        const end = i + 1 < matches.length ? matches[i + 1].index : fullText.length;
+        const blockText = fullText.substring(start, end).trim();
+        // Remove the leading number prefix (e.g., "Q1. " or "1. ")
+        const cleaned = blockText.replace(/^\s*(?:Q\.?\s*)?\d+\s*[.)]\s+/i, '').trim();
+        blocks.push({ num: matches[i].num, text: cleaned });
+      }
+
+      // Step 3: Process each block
       for (const block of blocks) {
-        const questionText = block.text.split(/(?=[A-F][.)]\s)/)[0].trim();
-        
-        // Skip if this block is metadata, not a real question
-        if (isMetadataLine(questionText)) {
-          console.log(`Skipped metadata block #${block.num}: "${questionText.substring(0, 80)}..."`);
-          // But try to extract any metadata from it
-          const blockMeta = extractPDFMetadata(block.text);
-          Object.assign(globalMeta, blockMeta);
+        // Skip metadata blocks
+        if (isMetadataLine(block.text.split('\n')[0] || block.text)) {
+          console.log(`Skipped metadata block #${block.num}`);
           continue;
         }
 
-        if (!questionText || questionText.length < 5) continue;
-
-        const choices: Record<string, string> = {};
+        // Extract answer from "Answer: X" pattern
         let correctAnswer = '';
-
-        // Extract choices from block segments
-        const blockSegments = block.text.split(/(?=[A-F][.)]\s)/);
-        for (const segment of blockSegments.slice(1)) {
-          const choiceMatch = segment.match(/^([A-F])[.)]\s*(.+)/);
-          if (choiceMatch) {
-            let choiceText = choiceMatch[2].trim();
-            const letter = choiceMatch[1];
-            if (choiceText.includes('*') || choiceText.includes('✓')) {
-              correctAnswer = letter;
-              choiceText = choiceText.replace(/[*✓]/g, '').trim();
-            }
-            choices[letter] = choiceText;
-          }
+        const answerMatch = block.text.match(/(?:Answer|Correct\s*Answer)\s*:\s*([A-Fa-f])/i);
+        if (answerMatch) {
+          correctAnswer = answerMatch[1].toUpperCase();
         }
 
-        // Inline choices fallback
+        // Extract per-question cognitive level and difficulty
+        let perQuestionCognitive = '';
+        let perQuestionDifficulty = '';
+        let perQuestionPoints = '';
+        const cogMatch = block.text.match(/Cognitive\s*Level\s*:\s*(\w+)/i);
+        if (cogMatch) perQuestionCognitive = cogMatch[1].trim();
+        const diffMatch = block.text.match(/Difficulty\s*(?:Level)?\s*:\s*(\w+)/i);
+        if (diffMatch) perQuestionDifficulty = diffMatch[1].trim();
+        const ptsMatch = block.text.match(/Points?\s*(?:Value)?\s*:\s*(\d+)/i);
+        if (ptsMatch) perQuestionPoints = ptsMatch[1].trim();
+
+        // Remove metadata/answer lines from the block to get clean question + choices
+        const cleanedBlock = block.text
+          .replace(/•\s*Cognitive\s*Level.*$/gim, '')
+          .replace(/•\s*Difficulty\s*Level.*$/gim, '')
+          .replace(/•\s*Points?\s*Value.*$/gim, '')
+          .replace(/(?:Answer|Correct\s*Answer)\s*:\s*[A-Fa-f]\b/gi, '')
+          .trim();
+
+        // Extract question text (everything before first choice marker)
+        const questionText = cleanedBlock.split(/(?:^|\n)\s*[A-F][.)]\s/m)[0]
+          .replace(/\n/g, ' ').trim();
+
+        if (!questionText || questionText.length < 5) continue;
+
+        // Extract choices
+        const choices: Record<string, string> = {};
+        const choiceRegex = /(?:^|\n)\s*([A-F])\s*[.)]\s+(.+?)(?=(?:\n\s*[A-F]\s*[.)])|$)/gs;
+        let choiceMatch: RegExpExecArray | null;
+        while ((choiceMatch = choiceRegex.exec(cleanedBlock)) !== null) {
+          const letter = choiceMatch[1].toUpperCase();
+          let choiceText = choiceMatch[2].trim().replace(/\n/g, ' ');
+          // Check for answer markers
+          if (choiceText.includes('*') || choiceText.includes('✓')) {
+            if (!correctAnswer) correctAnswer = letter;
+            choiceText = choiceText.replace(/[*✓]/g, '').trim();
+          }
+          choices[letter] = choiceText;
+        }
+
+        // Inline choices fallback (all on one line: A. xxx B. xxx C. xxx D. xxx)
         if (Object.keys(choices).length === 0) {
-          const inlineMatch = block.text.match(/([A-D])[.)]\s*([^A-D]+?)(?=\s+[A-D][.)]\s|$)/g);
-          if (inlineMatch && inlineMatch.length >= 2) {
-            for (const m of inlineMatch) {
-              const cm = m.match(/^([A-D])[.)]\s*(.+)/);
-              if (cm) {
-                let ct = cm[2].trim();
-                if (ct.includes('*') || ct.includes('✓')) {
-                  correctAnswer = cm[1];
-                  ct = ct.replace(/[*✓]/g, '').trim();
-                }
-                choices[cm[1]] = ct;
-              }
-            }
+          const inlineRegex = /([A-D])\s*[.)]\s*([^A-D]+?)(?=\s+[A-D]\s*[.)]|$)/g;
+          let inlineMatch: RegExpExecArray | null;
+          while ((inlineMatch = inlineRegex.exec(cleanedBlock)) !== null) {
+            choices[inlineMatch[1].toUpperCase()] = inlineMatch[2].trim();
           }
         }
 
         // Determine question type
-        let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
         const choiceCount = Object.keys(choices).length;
+        let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
         if (choiceCount === 0) {
           questionType = questionText.length > 100 ? 'essay' : 'short_answer';
         } else if (choiceCount === 2) {
@@ -303,7 +314,7 @@ export default function BulkImport({
           }
         }
 
-        // Validate correct answer strictly — don't default to 'A'
+        // Validate correct answer strictly
         const validatedAnswer = choiceCount > 0
           ? validateCorrectAnswer(correctAnswer, choices)
           : '';
@@ -314,7 +325,9 @@ export default function BulkImport({
           ...(choiceCount > 0 ? choices : {}),
           Correct: validatedAnswer,
           Topic: globalMeta.topic || selectedTopic || 'General',
-          // Attach extracted metadata
+          Bloom: perQuestionCognitive || '',
+          Difficulty: perQuestionDifficulty || '',
+          Points: perQuestionPoints || '',
           Category: globalMeta.category || '',
           Specialization: globalMeta.specialization || '',
           SubjectCode: globalMeta.subject_code || '',
@@ -322,8 +335,7 @@ export default function BulkImport({
         });
       }
 
-      // Fallback: if no numbered questions found, try paragraph-based extraction
-      // but still filter out metadata paragraphs
+      // Fallback: paragraph-based extraction if no questions found
       if (questions.length === 0) {
         const paragraphs = fullText.split(/\n\s*\n/).filter(p => {
           const trimmed = p.trim();
@@ -447,6 +459,51 @@ export default function BulkImport({
     };
   };
 
+  /**
+   * Token-based semantic deduplication using Jaccard similarity.
+   * Compares all question pairs and removes near-duplicates above the threshold.
+   */
+  const deduplicateQuestions = (questions: ParsedQuestion[], threshold: number): ParsedQuestion[] => {
+    const tokenize = (text: string): Set<string> => {
+      return new Set(
+        text.toLowerCase()
+          .replace(/[^\w\s]/g, '')
+          .split(/\s+/)
+          .filter(w => w.length > 2)
+      );
+    };
+
+    const jaccardSimilarity = (a: Set<string>, b: Set<string>): number => {
+      const intersection = new Set([...a].filter(x => b.has(x)));
+      const union = new Set([...a, ...b]);
+      return union.size > 0 ? intersection.size / union.size : 0;
+    };
+
+    const tokenized = questions.map(q => tokenize(q.question_text));
+    const keep: boolean[] = new Array(questions.length).fill(true);
+
+    for (let i = 0; i < questions.length; i++) {
+      if (!keep[i]) continue;
+      for (let j = i + 1; j < questions.length; j++) {
+        if (!keep[j]) continue;
+        const sim = jaccardSimilarity(tokenized[i], tokenized[j]);
+        if (sim >= threshold) {
+          // Keep the one with more complete data (more fields filled)
+          const scoreI = [questions[i].correct_answer, questions[i].bloom_level, questions[i].difficulty, questions[i].choices ? Object.keys(questions[i].choices!).length > 0 : false].filter(Boolean).length;
+          const scoreJ = [questions[j].correct_answer, questions[j].bloom_level, questions[j].difficulty, questions[j].choices ? Object.keys(questions[j].choices!).length > 0 : false].filter(Boolean).length;
+          if (scoreJ > scoreI) {
+            keep[i] = false;
+            break;
+          } else {
+            keep[j] = false;
+          }
+        }
+      }
+    }
+
+    return questions.filter((_, i) => keep[i]);
+  };
+
   /** Step 1: Parse, classify, resolve metadata, then show verification */
   const analyzeAndClassify = async () => {
     if (!file) return;
@@ -505,7 +562,17 @@ export default function BulkImport({
       if (skippedCount > 0) {
         validationWarnings.unshift(`${skippedCount} rows skipped due to missing/invalid data. ${normalizedData.length} valid questions will be processed.`);
         setErrors(validationWarnings);
-        // Don't return — continue processing valid rows
+      }
+
+      // ===== DEDUPLICATION STEP =====
+      setProgress(30);
+      setCurrentStep('Detecting duplicate questions...');
+      const deduplicatedData = deduplicateQuestions(normalizedData, 0.90);
+      const removedDupes = normalizedData.length - deduplicatedData.length;
+      if (removedDupes > 0) {
+        validationWarnings.push(`${removedDupes} duplicate question(s) removed based on semantic similarity (≥90% match).`);
+        setErrors([...validationWarnings]);
+        toast.info(`Removed ${removedDupes} duplicate questions`);
       }
 
       setProgress(40);
@@ -513,14 +580,14 @@ export default function BulkImport({
 
       // AI classification
       try {
-        const classificationInput = normalizedData.map(q => ({
+        const classificationInput = deduplicatedData.map(q => ({
           text: q.question_text,
           type: q.question_type,
           topic: q.topic
         }));
 
         const classifications = await classifyQuestions(classificationInput);
-        normalizedData.forEach((question, index) => {
+        deduplicatedData.forEach((question, index) => {
           const classification = classifications[index];
           if (classification) {
             question.bloom_level = question.bloom_level || classification.bloom_level;
@@ -539,7 +606,7 @@ export default function BulkImport({
       } catch (aiError) {
         console.warn('AI classification unavailable, using rule-based:', aiError);
         toast.info('Using rule-based classification (AI unavailable)');
-        normalizedData.forEach((question) => {
+        deduplicatedData.forEach((question) => {
           if (!question.bloom_level) question.bloom_level = classifyBloom(question.question_text);
           if (!question.knowledge_dimension) question.knowledge_dimension = detectKnowledgeDimension(question.question_text, question.question_type);
           if (!question.difficulty) question.difficulty = inferDifficulty(question.bloom_level as any, question.question_text, question.question_type);
@@ -552,7 +619,7 @@ export default function BulkImport({
       setCurrentStep('Resolving subject metadata...');
 
       // Resolve metadata for each question
-      normalizedData.forEach((q) => {
+      deduplicatedData.forEach((q) => {
         const resolved = resolveSubjectMetadata({
           subject: q.subject,
           topic: q.topic,
@@ -569,9 +636,9 @@ export default function BulkImport({
 
       setProgress(100);
       setCurrentStep('Analysis complete');
-      setVerificationData(normalizedData);
+      setVerificationData(deduplicatedData);
       setImportStep('verification');
-      toast.success(`Analyzed ${normalizedData.length} questions. Please verify before saving.`);
+      toast.success(`Analyzed ${deduplicatedData.length} unique questions${removedDupes > 0 ? ` (${removedDupes} duplicates removed)` : ''}. Please verify before saving.`);
     } catch (error) {
       console.error('Analysis error:', error);
       toast.error(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
