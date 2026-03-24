@@ -580,14 +580,14 @@ export default function BulkImport({
 
       // AI classification
       try {
-        const classificationInput = normalizedData.map(q => ({
+        const classificationInput = deduplicatedData.map(q => ({
           text: q.question_text,
           type: q.question_type,
           topic: q.topic
         }));
 
         const classifications = await classifyQuestions(classificationInput);
-        normalizedData.forEach((question, index) => {
+        deduplicatedData.forEach((question, index) => {
           const classification = classifications[index];
           if (classification) {
             question.bloom_level = question.bloom_level || classification.bloom_level;
@@ -606,7 +606,7 @@ export default function BulkImport({
       } catch (aiError) {
         console.warn('AI classification unavailable, using rule-based:', aiError);
         toast.info('Using rule-based classification (AI unavailable)');
-        normalizedData.forEach((question) => {
+        deduplicatedData.forEach((question) => {
           if (!question.bloom_level) question.bloom_level = classifyBloom(question.question_text);
           if (!question.knowledge_dimension) question.knowledge_dimension = detectKnowledgeDimension(question.question_text, question.question_type);
           if (!question.difficulty) question.difficulty = inferDifficulty(question.bloom_level as any, question.question_text, question.question_type);
@@ -619,7 +619,7 @@ export default function BulkImport({
       setCurrentStep('Resolving subject metadata...');
 
       // Resolve metadata for each question
-      normalizedData.forEach((q) => {
+      deduplicatedData.forEach((q) => {
         const resolved = resolveSubjectMetadata({
           subject: q.subject,
           topic: q.topic,
@@ -636,7 +636,7 @@ export default function BulkImport({
 
       setProgress(100);
       setCurrentStep('Analysis complete');
-      setVerificationData(normalizedData);
+      setVerificationData(deduplicatedData);
       setImportStep('verification');
       toast.success(`Analyzed ${normalizedData.length} questions. Please verify before saving.`);
     } catch (error) {
