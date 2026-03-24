@@ -459,6 +459,51 @@ export default function BulkImport({
     };
   };
 
+  /**
+   * Token-based semantic deduplication using Jaccard similarity.
+   * Compares all question pairs and removes near-duplicates above the threshold.
+   */
+  const deduplicateQuestions = (questions: ParsedQuestion[], threshold: number): ParsedQuestion[] => {
+    const tokenize = (text: string): Set<string> => {
+      return new Set(
+        text.toLowerCase()
+          .replace(/[^\w\s]/g, '')
+          .split(/\s+/)
+          .filter(w => w.length > 2)
+      );
+    };
+
+    const jaccardSimilarity = (a: Set<string>, b: Set<string>): number => {
+      const intersection = new Set([...a].filter(x => b.has(x)));
+      const union = new Set([...a, ...b]);
+      return union.size > 0 ? intersection.size / union.size : 0;
+    };
+
+    const tokenized = questions.map(q => tokenize(q.question_text));
+    const keep: boolean[] = new Array(questions.length).fill(true);
+
+    for (let i = 0; i < questions.length; i++) {
+      if (!keep[i]) continue;
+      for (let j = i + 1; j < questions.length; j++) {
+        if (!keep[j]) continue;
+        const sim = jaccardSimilarity(tokenized[i], tokenized[j]);
+        if (sim >= threshold) {
+          // Keep the one with more complete data (more fields filled)
+          const scoreI = [questions[i].correct_answer, questions[i].bloom_level, questions[i].difficulty, questions[i].choices ? Object.keys(questions[i].choices!).length > 0 : false].filter(Boolean).length;
+          const scoreJ = [questions[j].correct_answer, questions[j].bloom_level, questions[j].difficulty, questions[j].choices ? Object.keys(questions[j].choices!).length > 0 : false].filter(Boolean).length;
+          if (scoreJ > scoreI) {
+            keep[i] = false;
+            break;
+          } else {
+            keep[j] = false;
+          }
+        }
+      }
+    }
+
+    return questions.filter((_, i) => keep[i]);
+  };
+
   /** Step 1: Parse, classify, resolve metadata, then show verification */
   const analyzeAndClassify = async () => {
     if (!file) return;
