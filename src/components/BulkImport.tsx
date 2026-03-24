@@ -423,7 +423,16 @@ export default function BulkImport({
       question_text: questionText.trim(),
       question_type,
       choices,
-      correct_answer: row.Correct || row.correct_answer || row['Correct Answer'] || row.Answer || row.answer || (question_type === 'mcq' ? 'A' : ''),
+      correct_answer: (() => {
+        const raw = row.Correct || row.correct_answer || row['Correct Answer'] || row.Answer || row.answer || '';
+        if (!raw) return '';
+        // Strictly validate correct answer is within A-D for MCQ
+        if (question_type === 'mcq' && choices) {
+          const upper = String(raw).trim().toUpperCase();
+          return Object.keys(choices).includes(upper) ? upper : '';
+        }
+        return String(raw).trim();
+      })(),
       bloom_level: row.Bloom || row.bloom_level || row['Bloom Level'] || row['Bloom'],
       difficulty: row.Difficulty || row.difficulty,
       knowledge_dimension: row.KnowledgeDimension || row.knowledge_dimension || row['Knowledge Dimension'],
