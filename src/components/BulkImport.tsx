@@ -517,7 +517,17 @@ export default function BulkImport({
       if (skippedCount > 0) {
         validationWarnings.unshift(`${skippedCount} rows skipped due to missing/invalid data. ${normalizedData.length} valid questions will be processed.`);
         setErrors(validationWarnings);
-        // Don't return — continue processing valid rows
+      }
+
+      // ===== DEDUPLICATION STEP =====
+      setProgress(30);
+      setCurrentStep('Detecting duplicate questions...');
+      const deduplicatedData = deduplicateQuestions(normalizedData, 0.90);
+      const removedDupes = normalizedData.length - deduplicatedData.length;
+      if (removedDupes > 0) {
+        validationWarnings.push(`${removedDupes} duplicate question(s) removed based on semantic similarity (≥90% match).`);
+        setErrors([...validationWarnings]);
+        toast.info(`Removed ${removedDupes} duplicate questions`);
       }
 
       setProgress(40);
