@@ -638,7 +638,7 @@ export default function BulkImport({
       setCurrentStep('Analysis complete');
       setVerificationData(deduplicatedData);
       setImportStep('verification');
-      toast.success(`Analyzed ${normalizedData.length} questions. Please verify before saving.`);
+      toast.success(`Analyzed ${deduplicatedData.length} unique questions${removedDupes > 0 ? ` (${removedDupes} duplicates removed)` : ''}. Please verify before saving.`);
     } catch (error) {
       console.error('Analysis error:', error);
       toast.error(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
