@@ -135,6 +135,69 @@ export default function BulkImport({
     });
   };
 
+  /**
+   * Metadata keywords that indicate a line is descriptive info, not a question.
+   * These patterns are checked against numbered lines to filter out false positives.
+   */
+  const METADATA_KEYWORDS = [
+    'question bank', 'category:', 'specialization:', 'subject code:', 'subject description:',
+    'cognitive level:', 'points value:', 'correct answer:', 'topic:', 'course:',
+    'major specialization', 'minor specialization', 'introduction to', 'table of specification',
+    'instruction:', 'directions:', 'note:', 'department:', 'college:', 'university:',
+    'school year:', 'semester:', 'exam period:', 'time limit:', 'total items:',
+    'prepared by:', 'checked by:', 'approved by:', 'date:', 'section:',
+  ];
+
+  /** Check if text is metadata/header rather than an actual question */
+  const isMetadataLine = (text: string): boolean => {
+    const lower = text.toLowerCase().trim();
+    // Check against known metadata keywords
+    if (METADATA_KEYWORDS.some(kw => lower.includes(kw))) return true;
+    // Lines that are just labels with colons and no question mark are likely metadata
+    if (lower.includes(':') && !lower.includes('?') && lower.split(':').length >= 2) {
+      const beforeColon = lower.split(':')[0].trim();
+      // If the part before the colon is a short label (< 4 words), it's metadata
+      if (beforeColon.split(/\s+/).length <= 4) return true;
+    }
+    // Very short text without question structure
+    if (lower.length < 15 && !lower.includes('?')) return true;
+    return false;
+  };
+
+  /** Extract global metadata from non-question text in the PDF */
+  const extractPDFMetadata = (text: string): Record<string, string> => {
+    const metadata: Record<string, string> = {};
+    const patterns: Record<string, RegExp> = {
+      category: /category\s*:\s*(.+?)(?:\n|$)/i,
+      specialization: /specialization\s*:\s*(.+?)(?:\n|$)/i,
+      subject_code: /subject\s*code\s*:\s*(.+?)(?:\n|$)/i,
+      subject_description: /subject\s*description\s*:\s*(.+?)(?:\n|$)/i,
+      cognitive_level: /cognitive\s*level\s*:\s*(.+?)(?:\n|$)/i,
+      topic: /topic\s*:\s*(.+?)(?:\n|$)/i,
+      course: /course\s*:\s*(.+?)(?:\n|$)/i,
+    };
+    for (const [key, regex] of Object.entries(patterns)) {
+      const match = text.match(regex);
+      if (match) metadata[key] = match[1].trim();
+    }
+    // Also try to extract subject from "IT101: Introduction to Computing" pattern
+    const subjectMatch = text.match(/([A-Z]{2,}\d{3,})\s*[:\-–]\s*(.+?)(?:\n|category|specialization)/i);
+    if (subjectMatch) {
+      metadata.subject_code = metadata.subject_code || subjectMatch[1].trim();
+      metadata.subject_description = metadata.subject_description || subjectMatch[2].trim();
+    }
+    return metadata;
+  };
+
+  /** Validate that a correct answer is within A-D range for MCQ */
+  const validateCorrectAnswer = (answer: string, choices: Record<string, string>): string => {
+    const cleaned = answer.trim().toUpperCase();
+    const validLetters = Object.keys(choices);
+    if (validLetters.includes(cleaned)) return cleaned;
+    // Don't default to 'A' — return empty to flag for review
+    return '';
+  };
+
   const extractQuestionsFromPDF = async (file: File): Promise<any[]> => {
     try {
       pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
@@ -149,15 +212,15 @@ export default function BulkImport({
         fullText += pageText + '\n';
       }
 
+      // Step 1: Extract global metadata from the full text
+      const globalMeta = extractPDFMetadata(fullText);
+      console.log('PDF global metadata extracted:', globalMeta);
+
       const questions: any[] = [];
 
-      // Pattern 1: Numbered questions (1. Question text)
-      const numberedPattern = /(?:^|\n)\s*(\d+)\.\s+(.+?)(?=(?:\n\s*\d+\.\s+)|\n*$)/gs;
-      let match;
-      const blocks: { num: string; text: string }[] = [];
-      
-      // Split by numbered items more robustly
+      // Step 2: Split into numbered blocks
       const lines = fullText.split('\n');
+      const blocks: { num: string; text: string }[] = [];
       let currentBlock = '';
       let currentNum = '';
       
@@ -177,15 +240,27 @@ export default function BulkImport({
         blocks.push({ num: currentNum, text: currentBlock.trim() });
       }
 
+      // Step 3: Filter blocks — only keep actual questions, skip metadata blocks
       for (const block of blocks) {
-        const blockLines = block.text.split(/(?=[A-F][.)]\s)/);
-        const questionText = blockLines[0].trim();
+        const questionText = block.text.split(/(?=[A-F][.)]\s)/)[0].trim();
+        
+        // Skip if this block is metadata, not a real question
+        if (isMetadataLine(questionText)) {
+          console.log(`Skipped metadata block #${block.num}: "${questionText.substring(0, 80)}..."`);
+          // But try to extract any metadata from it
+          const blockMeta = extractPDFMetadata(block.text);
+          Object.assign(globalMeta, blockMeta);
+          continue;
+        }
+
         if (!questionText || questionText.length < 5) continue;
 
         const choices: Record<string, string> = {};
         let correctAnswer = '';
 
-        for (const segment of blockLines.slice(1)) {
+        // Extract choices from block segments
+        const blockSegments = block.text.split(/(?=[A-F][.)]\s)/);
+        for (const segment of blockSegments.slice(1)) {
           const choiceMatch = segment.match(/^([A-F])[.)]\s*(.+)/);
           if (choiceMatch) {
             let choiceText = choiceMatch[2].trim();
@@ -198,7 +273,7 @@ export default function BulkImport({
           }
         }
 
-        // Also try inline choices: A. xxx B. xxx C. xxx D. xxx
+        // Inline choices fallback
         if (Object.keys(choices).length === 0) {
           const inlineMatch = block.text.match(/([A-D])[.)]\s*([^A-D]+?)(?=\s+[A-D][.)]\s|$)/g);
           if (inlineMatch && inlineMatch.length >= 2) {
@@ -216,6 +291,7 @@ export default function BulkImport({
           }
         }
 
+        // Determine question type
         let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
         const choiceCount = Object.keys(choices).length;
         if (choiceCount === 0) {
@@ -227,28 +303,47 @@ export default function BulkImport({
           }
         }
 
+        // Validate correct answer strictly — don't default to 'A'
+        const validatedAnswer = choiceCount > 0
+          ? validateCorrectAnswer(correctAnswer, choices)
+          : '';
+
         questions.push({
           Question: questionText,
           Type: questionType,
           ...(choiceCount > 0 ? choices : {}),
-          Correct: correctAnswer || (choiceCount > 0 ? 'A' : ''),
-          Topic: selectedTopic || 'General',
+          Correct: validatedAnswer,
+          Topic: globalMeta.topic || selectedTopic || 'General',
+          // Attach extracted metadata
+          Category: globalMeta.category || '',
+          Specialization: globalMeta.specialization || '',
+          SubjectCode: globalMeta.subject_code || '',
+          SubjectDescription: globalMeta.subject_description || '',
         });
       }
 
-      // Fallback: if no numbered questions found, try splitting by blank lines
+      // Fallback: if no numbered questions found, try paragraph-based extraction
+      // but still filter out metadata paragraphs
       if (questions.length === 0) {
-        const paragraphs = fullText.split(/\n\s*\n/).filter(p => p.trim().length > 10);
+        const paragraphs = fullText.split(/\n\s*\n/).filter(p => {
+          const trimmed = p.trim();
+          return trimmed.length > 10 && !isMetadataLine(trimmed);
+        });
         for (const para of paragraphs) {
           questions.push({
             Question: para.trim().substring(0, 500),
             Type: 'short_answer',
             Correct: '',
-            Topic: selectedTopic || 'General',
+            Topic: globalMeta.topic || selectedTopic || 'General',
+            Category: globalMeta.category || '',
+            Specialization: globalMeta.specialization || '',
+            SubjectCode: globalMeta.subject_code || '',
+            SubjectDescription: globalMeta.subject_description || '',
           });
         }
       }
-      
+
+      console.log(`PDF extraction: ${questions.length} questions found, metadata:`, globalMeta);
       return questions;
     } catch (error) {
       console.error('PDF parsing error:', error);
