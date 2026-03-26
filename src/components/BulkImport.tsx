@@ -391,8 +391,17 @@ export default function BulkImport({
     return errors;
   };
 
+  /** Strip question number prefixes like "Q1.", "Q1)", "1.", "1)" from text */
+  const stripQuestionPrefix = (text: string): string => {
+    return text
+      .replace(/^\s*(?:Q\.?\s*)?\d+\s*[.)]\s*/i, '')
+      .replace(/^\s*(?:Question\s*)?\d+\s*[.:)]\s*/i, '')
+      .trim();
+  };
+
   const normalizeRow = (row: any): Partial<ParsedQuestion> => {
-    const questionText = row.Question || row.question_text || row['Question Text'] || row.question || '';
+    const rawText = row.Question || row.question_text || row['Question Text'] || row.question || '';
+    const questionText = stripQuestionPrefix(rawText);
     const topic = row.Topic || row.topic || '';
     const type = (row.Type || row.type || row.question_type || '').toLowerCase();
 
@@ -463,13 +472,15 @@ export default function BulkImport({
    * Token-based semantic deduplication using Jaccard similarity.
    * Compares all question pairs and removes near-duplicates above the threshold.
    */
+  /** Normalize text for comparison: lowercase, strip punctuation, collapse whitespace */
+  const normalizeForComparison = (text: string): string => {
+    return text.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+  };
+
   const deduplicateQuestions = (questions: ParsedQuestion[], threshold: number): ParsedQuestion[] => {
     const tokenize = (text: string): Set<string> => {
       return new Set(
-        text.toLowerCase()
-          .replace(/[^\w\s]/g, '')
-          .split(/\s+/)
-          .filter(w => w.length > 2)
+        normalizeForComparison(text).split(/\s+/).filter(w => w.length > 2)
       );
     };
 
@@ -479,19 +490,31 @@ export default function BulkImport({
       return union.size > 0 ? intersection.size / union.size : 0;
     };
 
+    // Pre-compute normalized texts and tokens
+    const normalized = questions.map(q => normalizeForComparison(q.question_text));
     const tokenized = questions.map(q => tokenize(q.question_text));
     const keep: boolean[] = new Array(questions.length).fill(true);
+
+    const completenessScore = (q: ParsedQuestion): number => {
+      return [q.correct_answer, q.bloom_level, q.difficulty,
+        q.choices && Object.keys(q.choices).length > 0,
+        q.category, q.specialization, q.subject_code
+      ].filter(Boolean).length;
+    };
 
     for (let i = 0; i < questions.length; i++) {
       if (!keep[i]) continue;
       for (let j = i + 1; j < questions.length; j++) {
         if (!keep[j]) continue;
-        const sim = jaccardSimilarity(tokenized[i], tokenized[j]);
-        if (sim >= threshold) {
-          // Keep the one with more complete data (more fields filled)
-          const scoreI = [questions[i].correct_answer, questions[i].bloom_level, questions[i].difficulty, questions[i].choices ? Object.keys(questions[i].choices!).length > 0 : false].filter(Boolean).length;
-          const scoreJ = [questions[j].correct_answer, questions[j].bloom_level, questions[j].difficulty, questions[j].choices ? Object.keys(questions[j].choices!).length > 0 : false].filter(Boolean).length;
-          if (scoreJ > scoreI) {
+
+        // Layer 1: Exact match on normalized text
+        const isExact = normalized[i] === normalized[j];
+        // Layer 2: Jaccard semantic similarity
+        const sim = isExact ? 1.0 : jaccardSimilarity(tokenized[i], tokenized[j]);
+
+        if (isExact || sim >= threshold) {
+          // Keep the one with more complete metadata
+          if (completenessScore(questions[j]) > completenessScore(questions[i])) {
             keep[i] = false;
             break;
           } else {
@@ -501,7 +524,9 @@ export default function BulkImport({
       }
     }
 
-    return questions.filter((_, i) => keep[i]);
+    const result = questions.filter((_, i) => keep[i]);
+    console.log(`Deduplication: ${questions.length} → ${result.length} (removed ${questions.length - result.length})`);
+    return result;
   };
 
   /** Step 1: Parse, classify, resolve metadata, then show verification */
