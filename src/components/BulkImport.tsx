@@ -391,11 +391,15 @@ export default function BulkImport({
     return errors;
   };
 
-  /** Strip question number prefixes like "Q1.", "Q1)", "1.", "1)" from text */
+  /** Strip question identifiers like "Q1.", "(Q1)", "Question 1:" from text */
   const stripQuestionPrefix = (text: string): string => {
-    return text
-      .replace(/^\s*(?:Q\.?\s*)?\d+\s*[.)]\s*/i, '')
-      .replace(/^\s*(?:Question\s*)?\d+\s*[.:)]\s*/i, '')
+    return String(text || '')
+      // Leading labels (Q1., Q1), (Q1), Question 1:, 1.)
+      .replace(/^\s*(?:\(\s*)?(?:(?:q(?:uestion)?\.?\s*)?\d+)(?:\s*[.)\-:]\s*)?(?:\)\s*)?/i, '')
+      .replace(/^\s*(?:item\s*)?\d+\s*[.)\-:]\s*/i, '')
+      // Inline/Trailing labels ((Q1), Q1., Question 1)
+      .replace(/\(\s*q(?:uestion)?\.?\s*\d+\s*\)/gi, ' ')
+      .replace(/\bq(?:uestion)?\.?\s*\d+\s*[.)]?\s*$/i, '')
       .trim();
   };
 
@@ -472,27 +476,53 @@ export default function BulkImport({
    * Token-based semantic deduplication using Jaccard similarity.
    * Compares all question pairs and removes near-duplicates above the threshold.
    */
-  /** Normalize text for comparison: lowercase, strip punctuation, collapse whitespace */
+  /** Normalize text for comparison: remove Q-labels, lowercase, strip punctuation, collapse whitespace */
   const normalizeForComparison = (text: string): string => {
-    return text.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+    return stripQuestionPrefix(text)
+      .replace(/\bq(?:uestion)?\.?\s*\d+\b/gi, ' ')
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   };
 
   const deduplicateQuestions = (questions: ParsedQuestion[], threshold: number): ParsedQuestion[] => {
-    const tokenize = (text: string): Set<string> => {
-      return new Set(
-        normalizeForComparison(text).split(/\s+/).filter(w => w.length > 2)
-      );
+    const tokenize = (text: string): string[] => {
+      return normalizeForComparison(text)
+        .split(/\s+/)
+        .filter(w => w.length > 2);
     };
 
-    const jaccardSimilarity = (a: Set<string>, b: Set<string>): number => {
-      const intersection = new Set([...a].filter(x => b.has(x)));
-      const union = new Set([...a, ...b]);
-      return union.size > 0 ? intersection.size / union.size : 0;
+    const buildTermFrequency = (tokens: string[]): Map<string, number> => {
+      const tf = new Map<string, number>();
+      tokens.forEach(token => {
+        tf.set(token, (tf.get(token) || 0) + 1);
+      });
+      return tf;
+    };
+
+    const cosineSimilarity = (a: Map<string, number>, b: Map<string, number>): number => {
+      let dot = 0;
+      let normA = 0;
+      let normB = 0;
+
+      for (const [token, countA] of a.entries()) {
+        normA += countA * countA;
+        const countB = b.get(token) || 0;
+        dot += countA * countB;
+      }
+
+      for (const countB of b.values()) {
+        normB += countB * countB;
+      }
+
+      if (normA === 0 || normB === 0) return 0;
+      return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     };
 
     // Pre-compute normalized texts and tokens
     const normalized = questions.map(q => normalizeForComparison(q.question_text));
-    const tokenized = questions.map(q => tokenize(q.question_text));
+    const termFrequencies = questions.map(q => buildTermFrequency(tokenize(q.question_text)));
     const keep: boolean[] = new Array(questions.length).fill(true);
 
     const completenessScore = (q: ParsedQuestion): number => {
@@ -509,8 +539,8 @@ export default function BulkImport({
 
         // Layer 1: Exact match on normalized text
         const isExact = normalized[i] === normalized[j];
-        // Layer 2: Jaccard semantic similarity
-        const sim = isExact ? 1.0 : jaccardSimilarity(tokenized[i], tokenized[j]);
+        // Layer 2: cosine similarity on normalized token frequencies
+        const sim = isExact ? 1.0 : cosineSimilarity(termFrequencies[i], termFrequencies[j]);
 
         if (isExact || sim >= threshold) {
           // Keep the one with more complete metadata
@@ -553,29 +583,18 @@ export default function BulkImport({
         setProgress(20);
       }
 
-      setCurrentStep('Normalizing and validating data...');
+      setCurrentStep('Normalizing data...');
       const validationWarnings: string[] = [];
-      const normalizedData: ParsedQuestion[] = [];
-      let skippedCount = 0;
 
-      rawData.forEach((row, index) => {
-        // Normalize FIRST (apply defaults for missing optional fields)
+      const normalizedData: ParsedQuestion[] = rawData.map((row) => {
         const normalized = normalizeRow(row);
-        
-        // Validate AFTER normalization - only filter out truly incomplete entries
-        const rowErrors = validateNormalized(normalized, index);
-        if (rowErrors.length > 0) {
-          validationWarnings.push(...rowErrors);
-          skippedCount++;
-          return; // Skip this row, don't block the entire import
-        }
-
-        normalizedData.push({
+        return {
           ...normalized,
+          question_text: stripQuestionPrefix(normalized.question_text || ''),
           created_by: 'teacher',
           approved: false,
           needs_review: true,
-        } as ParsedQuestion);
+        } as ParsedQuestion;
       });
 
       if (normalizedData.length === 0) {
@@ -584,23 +603,49 @@ export default function BulkImport({
         return;
       }
 
-      if (skippedCount > 0) {
-        validationWarnings.unshift(`${skippedCount} rows skipped due to missing/invalid data. ${normalizedData.length} valid questions will be processed.`);
-        setErrors(validationWarnings);
+      // ===== DEDUPLICATION STEP =====
+      setProgress(35);
+      setCurrentStep('Detecting duplicate questions...');
+      const deduplicatedBeforeValidation = deduplicateQuestions(normalizedData, 0.90);
+      const removedDupes = normalizedData.length - deduplicatedBeforeValidation.length;
+
+      // ===== VALIDATION STEP (after dedup) =====
+      setProgress(50);
+      setCurrentStep('Validating deduplicated questions...');
+      const deduplicatedData: ParsedQuestion[] = [];
+      let skippedCount = 0;
+
+      deduplicatedBeforeValidation.forEach((row, index) => {
+        const rowErrors = validateNormalized(row, index);
+        if (rowErrors.length > 0) {
+          validationWarnings.push(...rowErrors);
+          skippedCount++;
+          return;
+        }
+        deduplicatedData.push({
+          ...row,
+          question_text: stripQuestionPrefix(row.question_text),
+        });
+      });
+
+      if (deduplicatedData.length === 0) {
+        setErrors(['No valid questions remained after deduplication and validation.']);
+        setIsProcessing(false);
+        return;
       }
 
-      // ===== DEDUPLICATION STEP =====
-      setProgress(30);
-      setCurrentStep('Detecting duplicate questions...');
-      const deduplicatedData = deduplicateQuestions(normalizedData, 0.90);
-      const removedDupes = normalizedData.length - deduplicatedData.length;
       if (removedDupes > 0) {
         validationWarnings.push(`${removedDupes} duplicate question(s) removed based on semantic similarity (≥90% match).`);
-        setErrors([...validationWarnings]);
         toast.info(`Removed ${removedDupes} duplicate questions`);
       }
 
-      setProgress(40);
+      if (skippedCount > 0) {
+        validationWarnings.unshift(`${skippedCount} rows skipped due to missing/invalid data. ${deduplicatedData.length} valid questions will be processed.`);
+      }
+
+      setErrors(validationWarnings);
+
+      setProgress(65);
       setCurrentStep('Classifying questions with AI...');
 
       // AI classification
@@ -704,9 +749,20 @@ export default function BulkImport({
         return difficultyMap[n] || 'average';
       };
 
-      const questionsWithDefaults = verificationData.map(q => ({
+      const cleanedVerificationData = verificationData.map(q => ({
+        ...q,
+        question_text: stripQuestionPrefix(q.question_text || ''),
+      }));
+
+      const deduplicatedForSave = deduplicateQuestions(cleanedVerificationData, 0.90);
+      const saveDupesRemoved = verificationData.length - deduplicatedForSave.length;
+      if (saveDupesRemoved > 0) {
+        toast.info(`Removed ${saveDupesRemoved} duplicate questions before final save`);
+      }
+
+      const questionsWithDefaults = deduplicatedForSave.map(q => ({
         topic: q.topic || q.subject_description || 'General',
-        question_text: q.question_text || '',
+        question_text: stripQuestionPrefix(q.question_text || ''),
         question_type: (q.question_type as 'mcq' | 'true_false' | 'essay' | 'short_answer') || 'mcq',
         choices: q.choices || {},
         correct_answer: q.correct_answer || '',
@@ -737,15 +793,15 @@ export default function BulkImport({
       setCurrentStep('Import completed!');
 
       const stats: ImportStats = {
-        total: verificationData.length,
-        processed: verificationData.length,
-        approved: verificationData.filter(q => q.approved).length,
-        needsReview: verificationData.filter(q => q.needs_review).length,
+        total: deduplicatedForSave.length,
+        processed: deduplicatedForSave.length,
+        approved: deduplicatedForSave.filter(q => q.approved).length,
+        needsReview: deduplicatedForSave.filter(q => q.needs_review).length,
         byBloom: {},
         byDifficulty: {},
         byTopic: {},
       };
-      verificationData.forEach((q) => {
+      deduplicatedForSave.forEach((q) => {
         stats.byBloom[q.bloom_level!] = (stats.byBloom[q.bloom_level!] || 0) + 1;
         stats.byDifficulty[q.difficulty!] = (stats.byDifficulty[q.difficulty!] || 0) + 1;
         stats.byTopic[q.topic] = (stats.byTopic[q.topic] || 0) + 1;
@@ -753,7 +809,7 @@ export default function BulkImport({
 
       setResults(stats);
       setImportStep('results');
-      toast.success(`Successfully imported ${verificationData.length} questions!`);
+      toast.success(`Successfully imported ${deduplicatedForSave.length} questions!`);
       onImportComplete();
     } catch (error) {
       console.error('Import error:', error);
