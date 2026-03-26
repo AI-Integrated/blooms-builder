@@ -662,6 +662,23 @@ export default function BulkImport({
         return validKnowledgeDimensions.includes(n) ? n : 'conceptual';
       };
 
+      const normalizeDifficulty = (val: string | undefined): string => {
+        const n = (val || 'average').toLowerCase().trim();
+        const difficultyMap: Record<string, string> = {
+          'easy': 'easy',
+          'simple': 'easy',
+          'basic': 'easy',
+          'average': 'average',
+          'medium': 'average',
+          'moderate': 'average',
+          'difficult': 'difficult',
+          'hard': 'difficult',
+          'complex': 'difficult',
+          'advanced': 'difficult',
+        };
+        return difficultyMap[n] || 'average';
+      };
+
       const questionsWithDefaults = verificationData.map(q => ({
         topic: q.topic || q.subject_description || 'General',
         question_text: q.question_text || '',
@@ -669,7 +686,7 @@ export default function BulkImport({
         choices: q.choices || {},
         correct_answer: q.correct_answer || '',
         bloom_level: (q.bloom_level || 'understanding').toLowerCase(),
-        difficulty: (q.difficulty || 'average').toLowerCase(),
+        difficulty: normalizeDifficulty(q.difficulty),
         knowledge_dimension: normalizeKD(q.knowledge_dimension),
         created_by: 'teacher' as const,
         approved: false,
