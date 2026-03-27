@@ -731,7 +731,52 @@ export default function BulkImport({
         });
       }
 
-      setProgress(70);
+      // ===== AUTO TOPIC ASSIGNMENT =====
+      setProgress(72);
+      setCurrentStep('Assigning topics from Question Bank...');
+
+      if (existingTopics.length > 0) {
+        const topicTokensMap = existingTopics.map(t => ({
+          topic: t,
+          tokens: new Set(t.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2)),
+        }));
+
+        deduplicatedData.forEach((q) => {
+          // Skip if topic is already meaningfully assigned (not 'General' or empty)
+          if (q.topic && q.topic !== 'General' && q.topic !== selectedTopic) return;
+
+          const qTokens = q.question_text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+          const qSet = new Set(qTokens);
+
+          let bestTopic = '';
+          let bestScore = 0;
+
+          for (const { topic, tokens } of topicTokensMap) {
+            if (tokens.size === 0) continue;
+            // Jaccard-like overlap
+            let overlap = 0;
+            for (const token of tokens) {
+              if (qSet.has(token)) overlap++;
+            }
+            const score = overlap / Math.max(tokens.size, 1);
+            if (score > bestScore && score >= 0.3) {
+              bestScore = score;
+              bestTopic = topic;
+            }
+          }
+
+          if (bestTopic) {
+            q.topic = bestTopic;
+          }
+        });
+        
+        const assignedCount = deduplicatedData.filter(q => q.topic !== 'General' && q.topic !== selectedTopic).length;
+        if (assignedCount > 0) {
+          toast.info(`Auto-assigned topics to ${assignedCount} questions from Question Bank`);
+        }
+      }
+
+      setProgress(78);
       setCurrentStep('Resolving subject metadata...');
 
       // Resolve metadata for each question
