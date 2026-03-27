@@ -50,7 +50,7 @@ export default function QuestionBankManager() {
   // Form state
   const [formData, setFormData] = useState({
     question_text: "",
-    question_type: "mcq" as const,
+    question_type: "mcq" as string,
     choices: [] as any[],
     correct_answer: "",
     topic: "",
