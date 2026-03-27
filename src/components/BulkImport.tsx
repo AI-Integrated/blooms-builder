@@ -223,197 +223,191 @@ export default function BulkImport({
     return '';
   };
 
+  /** Extract raw text from PDF using pdfjs */
+  const extractPDFText = async (file: File): Promise<string> => {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+    
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += pageText + '\n';
+    }
+    return fullText;
+  };
+
+  /** AI-assisted PDF parsing: sends raw text to edge function for intelligent extraction */
+  const aiParsePDF = async (rawText: string): Promise<{ questions: any[]; metadata: Record<string, string> }> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('parse-pdf-questions', {
+        body: {
+          raw_text: rawText,
+          existing_topics: existingTopics,
+          metadata: extractPDFMetadata(rawText),
+        },
+      });
+
+      if (error) throw error;
+      if (!data || !data.questions) throw new Error('No structured output from AI parser');
+
+      console.log(`AI parser returned ${data.questions.length} questions`);
+      return {
+        questions: data.questions,
+        metadata: data.detected_metadata || {},
+      };
+    } catch (err) {
+      console.warn('AI PDF parsing failed, falling back to regex:', err);
+      throw err;
+    }
+  };
+
+  /** Regex-based fallback PDF parser for when AI is unavailable */
+  const regexParsePDF = (fullText: string): any[] => {
+    const globalMeta = extractPDFMetadata(fullText);
+    const questions: any[] = [];
+
+    const questionBlockRegex = /(?:^|\n)\s*(?:Q\.?\s*)?(\d+)\s*[.)]\s+/gi;
+    const matches: { index: number; num: string }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = questionBlockRegex.exec(fullText)) !== null) {
+      matches.push({ index: match.index, num: match[1] });
+    }
+
+    const blocks: { num: string; text: string }[] = [];
+    for (let i = 0; i < matches.length; i++) {
+      const start = matches[i].index;
+      const end = i + 1 < matches.length ? matches[i + 1].index : fullText.length;
+      const blockText = fullText.substring(start, end).trim();
+      const cleaned = blockText.replace(/^\s*(?:Q\.?\s*)?\d+\s*[.)]\s+/i, '').trim();
+      blocks.push({ num: matches[i].num, text: cleaned });
+    }
+
+    for (const block of blocks) {
+      if (isMetadataLine(block.text.split('\n')[0] || block.text)) continue;
+
+      let correctAnswer = '';
+      const answerMatch = block.text.match(/(?:Answer|Correct\s*Answer)\s*:\s*([A-Fa-f])/i);
+      if (answerMatch) correctAnswer = answerMatch[1].toUpperCase();
+
+      const cleanedBlock = block.text
+        .replace(/•\s*Cognitive\s*Level.*$/gim, '')
+        .replace(/•\s*Difficulty\s*Level.*$/gim, '')
+        .replace(/•\s*Points?\s*Value.*$/gim, '')
+        .replace(/(?:Answer|Correct\s*Answer)\s*:\s*[A-Fa-f]\b/gi, '')
+        .trim();
+
+      const questionText = cleanedBlock.split(/(?:^|\n)\s*[A-F][.)]\s/m)[0]
+        .replace(/\n/g, ' ').trim();
+
+      if (!questionText || questionText.length < 5) continue;
+
+      const choices: Record<string, string> = {};
+      const choiceRegex = /(?:^|\n)\s*([A-F])\s*[.)]\s+(.+?)(?=(?:\n\s*[A-F]\s*[.)])|$)/gs;
+      let choiceMatch: RegExpExecArray | null;
+      while ((choiceMatch = choiceRegex.exec(cleanedBlock)) !== null) {
+        const letter = choiceMatch[1].toUpperCase();
+        let choiceText = choiceMatch[2].trim().replace(/\n/g, ' ');
+        if (choiceText.includes('*') || choiceText.includes('✓')) {
+          if (!correctAnswer) correctAnswer = letter;
+          choiceText = choiceText.replace(/[*✓]/g, '').trim();
+        }
+        choices[letter] = choiceText;
+      }
+
+      if (Object.keys(choices).length === 0) {
+        const inlineRegex = /([A-D])\s*[.)]\s*([^A-D]+?)(?=\s+[A-D]\s*[.)]|$)/g;
+        let inlineMatch: RegExpExecArray | null;
+        while ((inlineMatch = inlineRegex.exec(cleanedBlock)) !== null) {
+          choices[inlineMatch[1].toUpperCase()] = inlineMatch[2].trim();
+        }
+      }
+
+      const choiceCount = Object.keys(choices).length;
+      let questionType: string = 'mcq';
+      if (choiceCount === 0) {
+        questionType = questionText.length > 100 ? 'essay' : 'short_answer';
+      }
+
+      const validatedAnswer = choiceCount > 0 ? validateCorrectAnswer(correctAnswer, choices) : '';
+
+      questions.push({
+        Question: questionText,
+        Type: questionType,
+        ...(choiceCount > 0 ? choices : {}),
+        Correct: validatedAnswer,
+        Topic: globalMeta.topic || selectedTopic || 'General',
+        Category: globalMeta.category || '',
+        Specialization: globalMeta.specialization || '',
+        SubjectCode: globalMeta.subject_code || '',
+        SubjectDescription: globalMeta.subject_description || '',
+      });
+    }
+
+    return questions;
+  };
+
+  /** Main PDF extraction: AI-first with regex fallback */
   const extractQuestionsFromPDF = async (file: File): Promise<any[]> => {
     try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+      const rawText = await extractPDFText(file);
       
-      let fullText = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: any) => item.str).join(' ');
-        fullText += pageText + '\n';
+      // Try AI-assisted parsing first
+      try {
+        setCurrentStep('AI is analyzing PDF structure...');
+        const { questions: aiQuestions, metadata } = await aiParsePDF(rawText);
+        
+        if (aiQuestions.length > 0) {
+          // Convert AI output to standard format
+          return aiQuestions.map((q: any) => ({
+            Question: q.question_text,
+            Type: q.question_type || 'mcq',
+            ...(q.choices || {}),
+            Correct: q.correct_answer || '',
+            Topic: q.topic || metadata.subject_description || selectedTopic || 'General',
+            Bloom: q.bloom_level || '',
+            Difficulty: q.difficulty || '',
+            Category: metadata.category || '',
+            Specialization: metadata.specialization || '',
+            SubjectCode: metadata.subject_code || '',
+            SubjectDescription: metadata.subject_description || '',
+          }));
+        }
+      } catch (aiErr) {
+        console.warn('AI parsing failed, using regex fallback:', aiErr);
+        toast.info('AI parsing unavailable, using pattern-based extraction');
       }
 
-      // Step 1: Extract global metadata
-      const globalMeta = extractPDFMetadata(fullText);
-      console.log('PDF global metadata extracted:', globalMeta);
-
-      const questions: any[] = [];
-
-      // Step 2: Split into question blocks using Q1., Q2., 1., 1), etc.
-      // Match patterns: "Q1.", "Q1)", "1.", "1)" with optional leading whitespace
-      const questionBlockRegex = /(?:^|\n)\s*(?:Q\.?\s*)?(\d+)\s*[.)]\s+/gi;
-      const matches: { index: number; num: string }[] = [];
-      let match: RegExpExecArray | null;
-      while ((match = questionBlockRegex.exec(fullText)) !== null) {
-        matches.push({ index: match.index, num: match[1] });
-      }
-
-      // Extract each block's text (from this match to next match)
-      const blocks: { num: string; text: string }[] = [];
-      for (let i = 0; i < matches.length; i++) {
-        const start = matches[i].index;
-        const end = i + 1 < matches.length ? matches[i + 1].index : fullText.length;
-        const blockText = fullText.substring(start, end).trim();
-        // Remove the leading number prefix (e.g., "Q1. " or "1. ")
-        const cleaned = blockText.replace(/^\s*(?:Q\.?\s*)?\d+\s*[.)]\s+/i, '').trim();
-        blocks.push({ num: matches[i].num, text: cleaned });
-      }
-
-      // Step 3: Process each block
-      for (const block of blocks) {
-        // Skip metadata blocks
-        if (isMetadataLine(block.text.split('\n')[0] || block.text)) {
-          console.log(`Skipped metadata block #${block.num}`);
-          continue;
-        }
-
-        // Extract answer from "Answer: X" pattern
-        let correctAnswer = '';
-        const answerMatch = block.text.match(/(?:Answer|Correct\s*Answer)\s*:\s*([A-Fa-f])/i);
-        if (answerMatch) {
-          correctAnswer = answerMatch[1].toUpperCase();
-        }
-
-        // Extract per-question cognitive level and difficulty
-        let perQuestionCognitive = '';
-        let perQuestionDifficulty = '';
-        let perQuestionPoints = '';
-        const cogMatch = block.text.match(/Cognitive\s*Level\s*:\s*(\w+)/i);
-        if (cogMatch) perQuestionCognitive = cogMatch[1].trim();
-        const diffMatch = block.text.match(/Difficulty\s*(?:Level)?\s*:\s*(\w+)/i);
-        if (diffMatch) perQuestionDifficulty = diffMatch[1].trim();
-        const ptsMatch = block.text.match(/Points?\s*(?:Value)?\s*:\s*(\d+)/i);
-        if (ptsMatch) perQuestionPoints = ptsMatch[1].trim();
-
-        // Remove metadata/answer lines from the block to get clean question + choices
-        const cleanedBlock = block.text
-          .replace(/•\s*Cognitive\s*Level.*$/gim, '')
-          .replace(/•\s*Difficulty\s*Level.*$/gim, '')
-          .replace(/•\s*Points?\s*Value.*$/gim, '')
-          .replace(/(?:Answer|Correct\s*Answer)\s*:\s*[A-Fa-f]\b/gi, '')
-          .trim();
-
-        // Extract question text (everything before first choice marker)
-        const questionText = cleanedBlock.split(/(?:^|\n)\s*[A-F][.)]\s/m)[0]
-          .replace(/\n/g, ' ').trim();
-
-        if (!questionText || questionText.length < 5) continue;
-
-        // Extract choices
-        const choices: Record<string, string> = {};
-        const choiceRegex = /(?:^|\n)\s*([A-F])\s*[.)]\s+(.+?)(?=(?:\n\s*[A-F]\s*[.)])|$)/gs;
-        let choiceMatch: RegExpExecArray | null;
-        while ((choiceMatch = choiceRegex.exec(cleanedBlock)) !== null) {
-          const letter = choiceMatch[1].toUpperCase();
-          let choiceText = choiceMatch[2].trim().replace(/\n/g, ' ');
-          // Check for answer markers
-          if (choiceText.includes('*') || choiceText.includes('✓')) {
-            if (!correctAnswer) correctAnswer = letter;
-            choiceText = choiceText.replace(/[*✓]/g, '').trim();
-          }
-          choices[letter] = choiceText;
-        }
-
-        // Inline choices fallback (all on one line: A. xxx B. xxx C. xxx D. xxx)
-        if (Object.keys(choices).length === 0) {
-          const inlineRegex = /([A-D])\s*[.)]\s*([^A-D]+?)(?=\s+[A-D]\s*[.)]|$)/g;
-          let inlineMatch: RegExpExecArray | null;
-          while ((inlineMatch = inlineRegex.exec(cleanedBlock)) !== null) {
-            choices[inlineMatch[1].toUpperCase()] = inlineMatch[2].trim();
-          }
-        }
-
-        // Determine question type
-        const choiceCount = Object.keys(choices).length;
-        let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
-        if (choiceCount === 0) {
-          questionType = questionText.length > 100 ? 'essay' : 'short_answer';
-        } else if (choiceCount === 2) {
-          const vals = Object.values(choices).map(v => v.toLowerCase());
-          if (vals.some(v => v.includes('true')) && vals.some(v => v.includes('false'))) {
-            questionType = 'true_false';
-          }
-        }
-
-        // Validate correct answer strictly
-        const validatedAnswer = choiceCount > 0
-          ? validateCorrectAnswer(correctAnswer, choices)
-          : '';
-
-        questions.push({
-          Question: questionText,
-          Type: questionType,
-          ...(choiceCount > 0 ? choices : {}),
-          Correct: validatedAnswer,
+      // Fallback to regex
+      setCurrentStep('Extracting questions using pattern matching...');
+      const regexQuestions = regexParsePDF(rawText);
+      
+      if (regexQuestions.length === 0) {
+        // Last resort: paragraph-based
+        const globalMeta = extractPDFMetadata(rawText);
+        const paragraphs = rawText.split(/\n\s*\n/).filter(p => {
+          const trimmed = p.trim();
+          return trimmed.length > 10 && !isMetadataLine(trimmed);
+        });
+        return paragraphs.map(para => ({
+          Question: para.trim().substring(0, 500),
+          Type: 'short_answer',
+          Correct: '',
           Topic: globalMeta.topic || selectedTopic || 'General',
-          Bloom: perQuestionCognitive || '',
-          Difficulty: perQuestionDifficulty || '',
-          Points: perQuestionPoints || '',
           Category: globalMeta.category || '',
           Specialization: globalMeta.specialization || '',
           SubjectCode: globalMeta.subject_code || '',
           SubjectDescription: globalMeta.subject_description || '',
-        });
+        }));
       }
 
-      // Fallback: paragraph-based extraction if no questions found
-      if (questions.length === 0) {
-        const paragraphs = fullText.split(/\n\s*\n/).filter(p => {
-          const trimmed = p.trim();
-          return trimmed.length > 10 && !isMetadataLine(trimmed);
-        });
-        for (const para of paragraphs) {
-          questions.push({
-            Question: para.trim().substring(0, 500),
-            Type: 'short_answer',
-            Correct: '',
-            Topic: globalMeta.topic || selectedTopic || 'General',
-            Category: globalMeta.category || '',
-            Specialization: globalMeta.specialization || '',
-            SubjectCode: globalMeta.subject_code || '',
-            SubjectDescription: globalMeta.subject_description || '',
-          });
-        }
-      }
-
-      console.log(`PDF extraction: ${questions.length} questions found, metadata:`, globalMeta);
-      return questions;
+      return regexQuestions;
     } catch (error) {
       console.error('PDF parsing error:', error);
       throw new Error('Failed to parse PDF content');
     }
-  };
-
-  const previewPDF = async (file: File) => {
-    try {
-      setCurrentStep('Extracting text from PDF...');
-      const questions = await extractQuestionsFromPDF(file);
-      setPreviewData(questions.slice(0, 5));
-      setShowPreview(true);
-      setImportStep('preview');
-      toast.success(`Extracted ${questions.length} questions from PDF`);
-    } catch (error) {
-      toast.error(`PDF parsing error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
-  /** Validate AFTER normalization - only check truly essential fields */
-  const validateNormalized = (q: Partial<ParsedQuestion>, index: number): string[] => {
-    const errors: string[] = [];
-    if (!q.question_text || q.question_text.trim().length < 5) {
-      errors.push(`Row ${index + 1}: Missing or too short question text`);
-    }
-    if (q.question_type === 'mcq') {
-      const choiceCount = q.choices ? Object.keys(q.choices).length : 0;
-      if (choiceCount < 2) {
-        errors.push(`Row ${index + 1}: MCQ needs at least 2 answer choices`);
-      }
-    }
-    return errors;
   };
 
   /** Strip question identifiers like "Q1.", "(Q1)", "Question 1:" from text */
