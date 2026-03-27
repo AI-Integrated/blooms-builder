@@ -84,11 +84,35 @@ export default function BulkImport({
   const [verificationData, setVerificationData] = useState<ParsedQuestion[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
+  // Existing topics from Question Bank for auto-assignment
+  const [existingTopics, setExistingTopics] = useState<string[]>([]);
+
   const { batchClassify, buildTaxonomyMatrix } = useTaxonomyClassification({
     useMLClassifier: true,
     storeResults: true,
     checkSimilarity: true
   });
+
+  // Fetch existing topics from Question Bank on mount
+  useEffect(() => {
+    const fetchTopics = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('questions')
+          .select('topic')
+          .eq('deleted', false)
+          .not('topic', 'is', null);
+        if (!error && data) {
+          const uniqueTopics = [...new Set(data.map(q => q.topic).filter(Boolean))];
+          setExistingTopics(uniqueTopics);
+          console.log(`Loaded ${uniqueTopics.length} existing topics for auto-assignment`);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch existing topics:', e);
+      }
+    };
+    fetchTopics();
+  }, []);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
