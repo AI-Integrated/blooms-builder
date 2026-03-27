@@ -409,8 +409,35 @@ export default function BulkImport({
       throw new Error('Failed to parse PDF content');
     }
   };
+  const previewPDF = async (file: File) => {
+    try {
+      setCurrentStep('Extracting text from PDF...');
+      const questions = await extractQuestionsFromPDF(file);
+      setPreviewData(questions.slice(0, 5));
+      setShowPreview(true);
+      setImportStep('preview');
+      toast.success(`Extracted ${questions.length} questions from PDF`);
+    } catch (error) {
+      toast.error(`PDF parsing error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
 
-  /** Strip question identifiers like "Q1.", "(Q1)", "Question 1:" from text */
+  /** Validate AFTER normalization - only check truly essential fields */
+  const validateNormalized = (q: Partial<ParsedQuestion>, index: number): string[] => {
+    const errors: string[] = [];
+    if (!q.question_text || q.question_text.trim().length < 5) {
+      errors.push(`Row ${index + 1}: Missing or too short question text`);
+    }
+    if (q.question_type === 'mcq') {
+      const choiceCount = q.choices ? Object.keys(q.choices).length : 0;
+      if (choiceCount < 2) {
+        errors.push(`Row ${index + 1}: MCQ needs at least 2 answer choices`);
+      }
+    }
+    return errors;
+  };
+
+
   const stripQuestionPrefix = (text: string): string => {
     return String(text || '')
       // Leading labels (Q1., Q1), (Q1), Question 1:, 1.)
