@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Papa from 'papaparse';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -83,11 +84,35 @@ export default function BulkImport({
   const [verificationData, setVerificationData] = useState<ParsedQuestion[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
+  // Existing topics from Question Bank for auto-assignment
+  const [existingTopics, setExistingTopics] = useState<string[]>([]);
+
   const { batchClassify, buildTaxonomyMatrix } = useTaxonomyClassification({
     useMLClassifier: true,
     storeResults: true,
     checkSimilarity: true
   });
+
+  // Fetch existing topics from Question Bank on mount
+  useEffect(() => {
+    const fetchTopics = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('questions')
+          .select('topic')
+          .eq('deleted', false)
+          .not('topic', 'is', null);
+        if (!error && data) {
+          const uniqueTopics = [...new Set(data.map(q => q.topic).filter(Boolean))];
+          setExistingTopics(uniqueTopics);
+          console.log(`Loaded ${uniqueTopics.length} existing topics for auto-assignment`);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch existing topics:', e);
+      }
+    };
+    fetchTopics();
+  }, []);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -198,171 +223,192 @@ export default function BulkImport({
     return '';
   };
 
+  /** Extract raw text from PDF using pdfjs */
+  const extractPDFText = async (file: File): Promise<string> => {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+    
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += pageText + '\n';
+    }
+    return fullText;
+  };
+
+  /** AI-assisted PDF parsing: sends raw text to edge function for intelligent extraction */
+  const aiParsePDF = async (rawText: string): Promise<{ questions: any[]; metadata: Record<string, string> }> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('parse-pdf-questions', {
+        body: {
+          raw_text: rawText,
+          existing_topics: existingTopics,
+          metadata: extractPDFMetadata(rawText),
+        },
+      });
+
+      if (error) throw error;
+      if (!data || !data.questions) throw new Error('No structured output from AI parser');
+
+      console.log(`AI parser returned ${data.questions.length} questions`);
+      return {
+        questions: data.questions,
+        metadata: data.detected_metadata || {},
+      };
+    } catch (err) {
+      console.warn('AI PDF parsing failed, falling back to regex:', err);
+      throw err;
+    }
+  };
+
+  /** Regex-based fallback PDF parser for when AI is unavailable */
+  const regexParsePDF = (fullText: string): any[] => {
+    const globalMeta = extractPDFMetadata(fullText);
+    const questions: any[] = [];
+
+    const questionBlockRegex = /(?:^|\n)\s*(?:Q\.?\s*)?(\d+)\s*[.)]\s+/gi;
+    const matches: { index: number; num: string }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = questionBlockRegex.exec(fullText)) !== null) {
+      matches.push({ index: match.index, num: match[1] });
+    }
+
+    const blocks: { num: string; text: string }[] = [];
+    for (let i = 0; i < matches.length; i++) {
+      const start = matches[i].index;
+      const end = i + 1 < matches.length ? matches[i + 1].index : fullText.length;
+      const blockText = fullText.substring(start, end).trim();
+      const cleaned = blockText.replace(/^\s*(?:Q\.?\s*)?\d+\s*[.)]\s+/i, '').trim();
+      blocks.push({ num: matches[i].num, text: cleaned });
+    }
+
+    for (const block of blocks) {
+      if (isMetadataLine(block.text.split('\n')[0] || block.text)) continue;
+
+      let correctAnswer = '';
+      const answerMatch = block.text.match(/(?:Answer|Correct\s*Answer)\s*:\s*([A-Fa-f])/i);
+      if (answerMatch) correctAnswer = answerMatch[1].toUpperCase();
+
+      const cleanedBlock = block.text
+        .replace(/•\s*Cognitive\s*Level.*$/gim, '')
+        .replace(/•\s*Difficulty\s*Level.*$/gim, '')
+        .replace(/•\s*Points?\s*Value.*$/gim, '')
+        .replace(/(?:Answer|Correct\s*Answer)\s*:\s*[A-Fa-f]\b/gi, '')
+        .trim();
+
+      const questionText = cleanedBlock.split(/(?:^|\n)\s*[A-F][.)]\s/m)[0]
+        .replace(/\n/g, ' ').trim();
+
+      if (!questionText || questionText.length < 5) continue;
+
+      const choices: Record<string, string> = {};
+      const choiceRegex = /(?:^|\n)\s*([A-F])\s*[.)]\s+(.+?)(?=(?:\n\s*[A-F]\s*[.)])|$)/gs;
+      let choiceMatch: RegExpExecArray | null;
+      while ((choiceMatch = choiceRegex.exec(cleanedBlock)) !== null) {
+        const letter = choiceMatch[1].toUpperCase();
+        let choiceText = choiceMatch[2].trim().replace(/\n/g, ' ');
+        if (choiceText.includes('*') || choiceText.includes('✓')) {
+          if (!correctAnswer) correctAnswer = letter;
+          choiceText = choiceText.replace(/[*✓]/g, '').trim();
+        }
+        choices[letter] = choiceText;
+      }
+
+      if (Object.keys(choices).length === 0) {
+        const inlineRegex = /([A-D])\s*[.)]\s*([^A-D]+?)(?=\s+[A-D]\s*[.)]|$)/g;
+        let inlineMatch: RegExpExecArray | null;
+        while ((inlineMatch = inlineRegex.exec(cleanedBlock)) !== null) {
+          choices[inlineMatch[1].toUpperCase()] = inlineMatch[2].trim();
+        }
+      }
+
+      const choiceCount = Object.keys(choices).length;
+      let questionType: string = 'mcq';
+      if (choiceCount === 0) {
+        questionType = questionText.length > 100 ? 'essay' : 'short_answer';
+      }
+
+      const validatedAnswer = choiceCount > 0 ? validateCorrectAnswer(correctAnswer, choices) : '';
+
+      questions.push({
+        Question: questionText,
+        Type: questionType,
+        ...(choiceCount > 0 ? choices : {}),
+        Correct: validatedAnswer,
+        Topic: globalMeta.topic || selectedTopic || 'General',
+        Category: globalMeta.category || '',
+        Specialization: globalMeta.specialization || '',
+        SubjectCode: globalMeta.subject_code || '',
+        SubjectDescription: globalMeta.subject_description || '',
+      });
+    }
+
+    return questions;
+  };
+
+  /** Main PDF extraction: AI-first with regex fallback */
   const extractQuestionsFromPDF = async (file: File): Promise<any[]> => {
     try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+      const rawText = await extractPDFText(file);
       
-      let fullText = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: any) => item.str).join(' ');
-        fullText += pageText + '\n';
+      // Try AI-assisted parsing first
+      try {
+        setCurrentStep('AI is analyzing PDF structure...');
+        const { questions: aiQuestions, metadata } = await aiParsePDF(rawText);
+        
+        if (aiQuestions.length > 0) {
+          // Convert AI output to standard format
+          return aiQuestions.map((q: any) => ({
+            Question: q.question_text,
+            Type: q.question_type || 'mcq',
+            ...(q.choices || {}),
+            Correct: q.correct_answer || '',
+            Topic: q.topic || metadata.subject_description || selectedTopic || 'General',
+            Bloom: q.bloom_level || '',
+            Difficulty: q.difficulty || '',
+            Category: metadata.category || '',
+            Specialization: metadata.specialization || '',
+            SubjectCode: metadata.subject_code || '',
+            SubjectDescription: metadata.subject_description || '',
+          }));
+        }
+      } catch (aiErr) {
+        console.warn('AI parsing failed, using regex fallback:', aiErr);
+        toast.info('AI parsing unavailable, using pattern-based extraction');
       }
 
-      // Step 1: Extract global metadata
-      const globalMeta = extractPDFMetadata(fullText);
-      console.log('PDF global metadata extracted:', globalMeta);
-
-      const questions: any[] = [];
-
-      // Step 2: Split into question blocks using Q1., Q2., 1., 1), etc.
-      // Match patterns: "Q1.", "Q1)", "1.", "1)" with optional leading whitespace
-      const questionBlockRegex = /(?:^|\n)\s*(?:Q\.?\s*)?(\d+)\s*[.)]\s+/gi;
-      const matches: { index: number; num: string }[] = [];
-      let match: RegExpExecArray | null;
-      while ((match = questionBlockRegex.exec(fullText)) !== null) {
-        matches.push({ index: match.index, num: match[1] });
-      }
-
-      // Extract each block's text (from this match to next match)
-      const blocks: { num: string; text: string }[] = [];
-      for (let i = 0; i < matches.length; i++) {
-        const start = matches[i].index;
-        const end = i + 1 < matches.length ? matches[i + 1].index : fullText.length;
-        const blockText = fullText.substring(start, end).trim();
-        // Remove the leading number prefix (e.g., "Q1. " or "1. ")
-        const cleaned = blockText.replace(/^\s*(?:Q\.?\s*)?\d+\s*[.)]\s+/i, '').trim();
-        blocks.push({ num: matches[i].num, text: cleaned });
-      }
-
-      // Step 3: Process each block
-      for (const block of blocks) {
-        // Skip metadata blocks
-        if (isMetadataLine(block.text.split('\n')[0] || block.text)) {
-          console.log(`Skipped metadata block #${block.num}`);
-          continue;
-        }
-
-        // Extract answer from "Answer: X" pattern
-        let correctAnswer = '';
-        const answerMatch = block.text.match(/(?:Answer|Correct\s*Answer)\s*:\s*([A-Fa-f])/i);
-        if (answerMatch) {
-          correctAnswer = answerMatch[1].toUpperCase();
-        }
-
-        // Extract per-question cognitive level and difficulty
-        let perQuestionCognitive = '';
-        let perQuestionDifficulty = '';
-        let perQuestionPoints = '';
-        const cogMatch = block.text.match(/Cognitive\s*Level\s*:\s*(\w+)/i);
-        if (cogMatch) perQuestionCognitive = cogMatch[1].trim();
-        const diffMatch = block.text.match(/Difficulty\s*(?:Level)?\s*:\s*(\w+)/i);
-        if (diffMatch) perQuestionDifficulty = diffMatch[1].trim();
-        const ptsMatch = block.text.match(/Points?\s*(?:Value)?\s*:\s*(\d+)/i);
-        if (ptsMatch) perQuestionPoints = ptsMatch[1].trim();
-
-        // Remove metadata/answer lines from the block to get clean question + choices
-        const cleanedBlock = block.text
-          .replace(/•\s*Cognitive\s*Level.*$/gim, '')
-          .replace(/•\s*Difficulty\s*Level.*$/gim, '')
-          .replace(/•\s*Points?\s*Value.*$/gim, '')
-          .replace(/(?:Answer|Correct\s*Answer)\s*:\s*[A-Fa-f]\b/gi, '')
-          .trim();
-
-        // Extract question text (everything before first choice marker)
-        const questionText = cleanedBlock.split(/(?:^|\n)\s*[A-F][.)]\s/m)[0]
-          .replace(/\n/g, ' ').trim();
-
-        if (!questionText || questionText.length < 5) continue;
-
-        // Extract choices
-        const choices: Record<string, string> = {};
-        const choiceRegex = /(?:^|\n)\s*([A-F])\s*[.)]\s+(.+?)(?=(?:\n\s*[A-F]\s*[.)])|$)/gs;
-        let choiceMatch: RegExpExecArray | null;
-        while ((choiceMatch = choiceRegex.exec(cleanedBlock)) !== null) {
-          const letter = choiceMatch[1].toUpperCase();
-          let choiceText = choiceMatch[2].trim().replace(/\n/g, ' ');
-          // Check for answer markers
-          if (choiceText.includes('*') || choiceText.includes('✓')) {
-            if (!correctAnswer) correctAnswer = letter;
-            choiceText = choiceText.replace(/[*✓]/g, '').trim();
-          }
-          choices[letter] = choiceText;
-        }
-
-        // Inline choices fallback (all on one line: A. xxx B. xxx C. xxx D. xxx)
-        if (Object.keys(choices).length === 0) {
-          const inlineRegex = /([A-D])\s*[.)]\s*([^A-D]+?)(?=\s+[A-D]\s*[.)]|$)/g;
-          let inlineMatch: RegExpExecArray | null;
-          while ((inlineMatch = inlineRegex.exec(cleanedBlock)) !== null) {
-            choices[inlineMatch[1].toUpperCase()] = inlineMatch[2].trim();
-          }
-        }
-
-        // Determine question type
-        const choiceCount = Object.keys(choices).length;
-        let questionType: 'mcq' | 'true_false' | 'essay' | 'short_answer' = 'mcq';
-        if (choiceCount === 0) {
-          questionType = questionText.length > 100 ? 'essay' : 'short_answer';
-        } else if (choiceCount === 2) {
-          const vals = Object.values(choices).map(v => v.toLowerCase());
-          if (vals.some(v => v.includes('true')) && vals.some(v => v.includes('false'))) {
-            questionType = 'true_false';
-          }
-        }
-
-        // Validate correct answer strictly
-        const validatedAnswer = choiceCount > 0
-          ? validateCorrectAnswer(correctAnswer, choices)
-          : '';
-
-        questions.push({
-          Question: questionText,
-          Type: questionType,
-          ...(choiceCount > 0 ? choices : {}),
-          Correct: validatedAnswer,
+      // Fallback to regex
+      setCurrentStep('Extracting questions using pattern matching...');
+      const regexQuestions = regexParsePDF(rawText);
+      
+      if (regexQuestions.length === 0) {
+        // Last resort: paragraph-based
+        const globalMeta = extractPDFMetadata(rawText);
+        const paragraphs = rawText.split(/\n\s*\n/).filter(p => {
+          const trimmed = p.trim();
+          return trimmed.length > 10 && !isMetadataLine(trimmed);
+        });
+        return paragraphs.map(para => ({
+          Question: para.trim().substring(0, 500),
+          Type: 'short_answer',
+          Correct: '',
           Topic: globalMeta.topic || selectedTopic || 'General',
-          Bloom: perQuestionCognitive || '',
-          Difficulty: perQuestionDifficulty || '',
-          Points: perQuestionPoints || '',
           Category: globalMeta.category || '',
           Specialization: globalMeta.specialization || '',
           SubjectCode: globalMeta.subject_code || '',
           SubjectDescription: globalMeta.subject_description || '',
-        });
+        }));
       }
 
-      // Fallback: paragraph-based extraction if no questions found
-      if (questions.length === 0) {
-        const paragraphs = fullText.split(/\n\s*\n/).filter(p => {
-          const trimmed = p.trim();
-          return trimmed.length > 10 && !isMetadataLine(trimmed);
-        });
-        for (const para of paragraphs) {
-          questions.push({
-            Question: para.trim().substring(0, 500),
-            Type: 'short_answer',
-            Correct: '',
-            Topic: globalMeta.topic || selectedTopic || 'General',
-            Category: globalMeta.category || '',
-            Specialization: globalMeta.specialization || '',
-            SubjectCode: globalMeta.subject_code || '',
-            SubjectDescription: globalMeta.subject_description || '',
-          });
-        }
-      }
-
-      console.log(`PDF extraction: ${questions.length} questions found, metadata:`, globalMeta);
-      return questions;
+      return regexQuestions;
     } catch (error) {
       console.error('PDF parsing error:', error);
       throw new Error('Failed to parse PDF content');
     }
   };
-
   const previewPDF = async (file: File) => {
     try {
       setCurrentStep('Extracting text from PDF...');
@@ -391,7 +437,7 @@ export default function BulkImport({
     return errors;
   };
 
-  /** Strip question identifiers like "Q1.", "(Q1)", "Question 1:" from text */
+
   const stripQuestionPrefix = (text: string): string => {
     return String(text || '')
       // Leading labels (Q1., Q1), (Q1), Question 1:, 1.)
@@ -685,7 +731,52 @@ export default function BulkImport({
         });
       }
 
-      setProgress(70);
+      // ===== AUTO TOPIC ASSIGNMENT =====
+      setProgress(72);
+      setCurrentStep('Assigning topics from Question Bank...');
+
+      if (existingTopics.length > 0) {
+        const topicTokensMap = existingTopics.map(t => ({
+          topic: t,
+          tokens: new Set(t.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2)),
+        }));
+
+        deduplicatedData.forEach((q) => {
+          // Skip if topic is already meaningfully assigned (not 'General' or empty)
+          if (q.topic && q.topic !== 'General' && q.topic !== selectedTopic) return;
+
+          const qTokens = q.question_text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+          const qSet = new Set(qTokens);
+
+          let bestTopic = '';
+          let bestScore = 0;
+
+          for (const { topic, tokens } of topicTokensMap) {
+            if (tokens.size === 0) continue;
+            // Jaccard-like overlap
+            let overlap = 0;
+            for (const token of tokens) {
+              if (qSet.has(token)) overlap++;
+            }
+            const score = overlap / Math.max(tokens.size, 1);
+            if (score > bestScore && score >= 0.3) {
+              bestScore = score;
+              bestTopic = topic;
+            }
+          }
+
+          if (bestTopic) {
+            q.topic = bestTopic;
+          }
+        });
+        
+        const assignedCount = deduplicatedData.filter(q => q.topic !== 'General' && q.topic !== selectedTopic).length;
+        if (assignedCount > 0) {
+          toast.info(`Auto-assigned topics to ${assignedCount} questions from Question Bank`);
+        }
+      }
+
+      setProgress(78);
       setCurrentStep('Resolving subject metadata...');
 
       // Resolve metadata for each question
