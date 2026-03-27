@@ -511,17 +511,125 @@ export default function QuestionBankManager() {
           </div>
         </div>
 
-        {/* Row 3: Question Text (large) */}
+        {/* Row 3: Question Type */}
+        <div className="space-y-2">
+          <Label>Question Type</Label>
+          <RadioGroup
+            value={formData.question_type}
+            onValueChange={(v) => {
+              const type = v as typeof formData.question_type;
+              let choices: any[] = [];
+              let correct_answer = "";
+              if (type === "mcq") {
+                choices = { A: "", B: "", C: "", D: "" } as any;
+              } else if (type === "true_false") {
+                choices = { A: "True", B: "False" } as any;
+              }
+              setFormData({ ...formData, question_type: type, choices, correct_answer });
+            }}
+            className="flex flex-wrap gap-4 pt-1"
+          >
+            {[
+              { value: "mcq", label: "Multiple Choice" },
+              { value: "true_false", label: "True/False" },
+              { value: "identification", label: "Identification" },
+              { value: "essay", label: "Essay" },
+              { value: "fill_blank", label: "Fill in the Blank" },
+            ].map((opt) => (
+              <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                <RadioGroupItem value={opt.value} />
+                <span className="text-sm">{opt.label}</span>
+              </label>
+            ))}
+          </RadioGroup>
+        </div>
+
+        {/* Row 4: Question Text */}
         <div className="space-y-2">
           <Label>Question Text</Label>
           <Textarea
             value={formData.question_text}
             onChange={(e) => setFormData({ ...formData, question_text: e.target.value })}
-            rows={5}
-            placeholder="Enter question text..."
-            className="min-h-[120px]"
+            rows={formData.question_type === "essay" ? 8 : 5}
+            placeholder={
+              formData.question_type === "essay"
+                ? "Enter essay prompt or question..."
+                : formData.question_type === "fill_blank"
+                ? "Enter question with ___ for the blank..."
+                : "Enter question text..."
+            }
+            className={formData.question_type === "essay" ? "min-h-[180px]" : "min-h-[120px]"}
           />
         </div>
+
+        {/* Conditional: MCQ choices & correct answer */}
+        {formData.question_type === "mcq" && (
+          <div className="space-y-3">
+            <Label>Answer Choices</Label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {["A", "B", "C", "D"].map((key) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className="text-sm font-semibold w-6">{key}.</span>
+                  <Input
+                    placeholder={`Option ${key}`}
+                    value={(formData.choices as any)?.[key] || ""}
+                    onChange={(e) => {
+                      const updated = { ...(formData.choices as any || {}), [key]: e.target.value };
+                      setFormData({ ...formData, choices: updated });
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <Label>Correct Answer</Label>
+              <Select
+                value={formData.correct_answer || undefined}
+                onValueChange={(v) => setFormData({ ...formData, correct_answer: v })}
+              >
+                <SelectTrigger className="w-40"><SelectValue placeholder="Select answer" /></SelectTrigger>
+                <SelectContent>
+                  {["A", "B", "C", "D"].map((k) => (
+                    <SelectItem key={k} value={k}>{k}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+
+        {/* Conditional: True/False correct answer */}
+        {formData.question_type === "true_false" && (
+          <div className="space-y-2">
+            <Label>Correct Answer</Label>
+            <RadioGroup
+              value={formData.correct_answer}
+              onValueChange={(v) => setFormData({ ...formData, correct_answer: v })}
+              className="flex gap-6 pt-1"
+            >
+              <label className="flex items-center gap-2 cursor-pointer">
+                <RadioGroupItem value="True" />
+                <span className="text-sm">True</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <RadioGroupItem value="False" />
+                <span className="text-sm">False</span>
+              </label>
+            </RadioGroup>
+          </div>
+        )}
+
+        {/* Conditional: Identification / Fill in the Blank correct answer */}
+        {(formData.question_type === "identification" || formData.question_type === "fill_blank") && (
+          <div className="space-y-2">
+            <Label>Correct Answer</Label>
+            <Input
+              placeholder={formData.question_type === "fill_blank" ? "Enter the word/phrase for the blank" : "Enter the correct answer"}
+              value={formData.correct_answer}
+              onChange={(e) => setFormData({ ...formData, correct_answer: e.target.value })}
+            />
+          </div>
+        )}
 
         {/* Row 4: Cognitive Domain (difficulty checkboxes) + Cognitive Level */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
