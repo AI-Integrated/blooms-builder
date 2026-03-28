@@ -191,7 +191,10 @@ export default function QuestionBankManager() {
       toast.success("Question created successfully");
       resetForm();
     },
-    onError: () => toast.error("Failed to create question"),
+    onError: (err: any) => {
+      console.error("Create question error:", err);
+      toast.error(`Failed to create question: ${err?.message || "Unknown error"}`);
+    },
   });
 
   const updateMutation = useMutation({
