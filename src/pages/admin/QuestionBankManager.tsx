@@ -191,7 +191,10 @@ export default function QuestionBankManager() {
       toast.success("Question created successfully");
       resetForm();
     },
-    onError: () => toast.error("Failed to create question"),
+    onError: (err: any) => {
+      console.error("Create question error:", err);
+      toast.error(`Failed to create question: ${err?.message || "Unknown error"}`);
+    },
   });
 
   const updateMutation = useMutation({
@@ -282,6 +285,31 @@ export default function QuestionBankManager() {
     const finalData = { ...formData };
     if (formCustomCategory) finalData.category = formCustomCategory;
     if (formCustomSpecialization) finalData.specialization = formCustomSpecialization;
+
+    // Map difficulty domain checkboxes to the difficulty field (DB expects lowercase)
+    if (!finalData.difficulty && formDifficultyDomain.length > 0) {
+      // Use the first selected difficulty, lowercased to match DB constraint
+      finalData.difficulty = formDifficultyDomain[0].toLowerCase();
+    }
+
+    // Sync bloom_level from cognitive_level if not set
+    if (!finalData.bloom_level && finalData.cognitive_level) {
+      finalData.bloom_level = finalData.cognitive_level;
+    }
+
+    // Ensure topic has a value (required NOT NULL in DB)
+    if (!finalData.topic) {
+      finalData.topic = finalData.subject_description || finalData.subject_code || finalData.category || "General";
+    }
+
+    // Ensure choices is proper JSON for the DB
+    if (finalData.question_type === "mcq" && typeof finalData.choices === "object" && !Array.isArray(finalData.choices)) {
+      // Already an object like {A, B, C, D} - keep as is
+    } else if (finalData.question_type === "true_false") {
+      finalData.choices = { A: "True", B: "False" } as any;
+    } else if (["identification", "essay", "fill_blank"].includes(finalData.question_type)) {
+      finalData.choices = null as any;
+    }
 
     if (editingId) updateMutation.mutate({ id: editingId, data: finalData });
     else createMutation.mutate(finalData);
@@ -559,6 +587,16 @@ export default function QuestionBankManager() {
                 : "Enter question text..."
             }
             className={formData.question_type === "essay" ? "min-h-[180px]" : "min-h-[120px]"}
+          />
+        </div>
+
+        {/* Topic field */}
+        <div className="space-y-2">
+          <Label>Topic</Label>
+          <Input
+            placeholder="Enter topic (e.g., Data Structures, Programming Basics)"
+            value={formData.topic}
+            onChange={(e) => setFormData({ ...formData, topic: e.target.value })}
           />
         </div>
 
