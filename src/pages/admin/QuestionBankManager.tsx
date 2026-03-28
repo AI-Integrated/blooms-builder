@@ -140,10 +140,18 @@ export default function QuestionBankManager() {
     }
 
     if (filterCategory !== "all") {
-      result = result.filter((q) => (q as any).category === filterCategory);
+      const normFilter = normalizeCategory(filterCategory) || filterCategory;
+      result = result.filter((q) => {
+        const qCat = normalizeCategory((q as any).category) || (q as any).category;
+        return qCat === normFilter;
+      });
     }
     if (filterSpecialization !== "all") {
-      result = result.filter((q) => (q as any).specialization === filterSpecialization);
+      const normFilter = normalizeSpecialization(filterSpecialization) || filterSpecialization;
+      result = result.filter((q) => {
+        const qSpec = normalizeSpecialization((q as any).specialization) || (q as any).specialization;
+        return qSpec === normFilter;
+      });
     }
     if (filterSubjectCode !== "all") {
       result = result.filter((q) => (q as any).subject_code === filterSubjectCode);
