@@ -590,6 +590,16 @@ export default function QuestionBankManager() {
           />
         </div>
 
+        {/* Topic field */}
+        <div className="space-y-2">
+          <Label>Topic</Label>
+          <Input
+            placeholder="Enter topic (e.g., Data Structures, Programming Basics)"
+            value={formData.topic}
+            onChange={(e) => setFormData({ ...formData, topic: e.target.value })}
+          />
+        </div>
+
         {/* Conditional: MCQ choices & correct answer */}
         {formData.question_type === "mcq" && (
           <div className="space-y-3">
