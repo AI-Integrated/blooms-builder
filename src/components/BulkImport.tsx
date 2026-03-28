@@ -18,6 +18,7 @@ import { classifyBloom, detectKnowledgeDimension, inferDifficulty } from '@/serv
 import { useTaxonomyClassification } from '@/hooks/useTaxonomyClassification';
 import { resolveSubjectMetadata } from '@/services/ai/subjectMetadataResolver';
 import { CATEGORY_CONFIG, getSpecializations, getSubjectCodes } from '@/config/questionBankFilters';
+import { normalizeCategory, normalizeSpecialization } from '@/utils/acronymNormalizer';
 
 interface BulkImportProps {
   onClose: () => void;
@@ -481,8 +482,8 @@ export default function BulkImport({
     }
 
     // Read metadata columns from CSV - all optional
-    const csvCategory = row.Category || row.category || '';
-    const csvSpecialization = row.Specialization || row.specialization || '';
+    const csvCategory = normalizeCategory(row.Category || row.category || '');
+    const csvSpecialization = normalizeSpecialization(row.Specialization || row.specialization || '');
     const csvSubjectCode = row.SubjectCode || row.subject_code || row['Subject Code'] || '';
     const csvSubjectDescription = row.SubjectDescription || row.subject_description || row['Subject Description'] || '';
 

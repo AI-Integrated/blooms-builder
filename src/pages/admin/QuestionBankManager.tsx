@@ -20,6 +20,7 @@ import { FilterManagement } from "@/components/admin/FilterManagement";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useAcademicHierarchy } from "@/hooks/useAcademicHierarchy";
 import { Settings2 } from "lucide-react";
+import { normalizeCategory, normalizeSpecialization } from "@/utils/acronymNormalizer";
 
 const ALL_BLOOM_LEVELS = ["Remembering", "Understanding", "Applying", "Analyzing", "Evaluating", "Creating"];
 
@@ -285,6 +286,10 @@ export default function QuestionBankManager() {
     const finalData = { ...formData };
     if (formCustomCategory) finalData.category = formCustomCategory;
     if (formCustomSpecialization) finalData.specialization = formCustomSpecialization;
+
+    // Normalize acronyms/full forms before saving
+    finalData.category = normalizeCategory(finalData.category) || finalData.category;
+    finalData.specialization = normalizeSpecialization(finalData.specialization) || finalData.specialization;
 
     // Map difficulty domain checkboxes to the difficulty field (DB expects lowercase)
     if (!finalData.difficulty && formDifficultyDomain.length > 0) {
