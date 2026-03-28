@@ -20,6 +20,7 @@ import { FilterManagement } from "@/components/admin/FilterManagement";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useAcademicHierarchy } from "@/hooks/useAcademicHierarchy";
 import { Settings2 } from "lucide-react";
+import { normalizeCategory, normalizeSpecialization } from "@/utils/acronymNormalizer";
 
 const ALL_BLOOM_LEVELS = ["Remembering", "Understanding", "Applying", "Analyzing", "Evaluating", "Creating"];
 
@@ -139,10 +140,18 @@ export default function QuestionBankManager() {
     }
 
     if (filterCategory !== "all") {
-      result = result.filter((q) => (q as any).category === filterCategory);
+      const normFilter = normalizeCategory(filterCategory) || filterCategory;
+      result = result.filter((q) => {
+        const qCat = normalizeCategory((q as any).category) || (q as any).category;
+        return qCat === normFilter;
+      });
     }
     if (filterSpecialization !== "all") {
-      result = result.filter((q) => (q as any).specialization === filterSpecialization);
+      const normFilter = normalizeSpecialization(filterSpecialization) || filterSpecialization;
+      result = result.filter((q) => {
+        const qSpec = normalizeSpecialization((q as any).specialization) || (q as any).specialization;
+        return qSpec === normFilter;
+      });
     }
     if (filterSubjectCode !== "all") {
       result = result.filter((q) => (q as any).subject_code === filterSubjectCode);
@@ -285,6 +294,10 @@ export default function QuestionBankManager() {
     const finalData = { ...formData };
     if (formCustomCategory) finalData.category = formCustomCategory;
     if (formCustomSpecialization) finalData.specialization = formCustomSpecialization;
+
+    // Normalize acronyms/full forms before saving
+    finalData.category = normalizeCategory(finalData.category) || finalData.category;
+    finalData.specialization = normalizeSpecialization(finalData.specialization) || finalData.specialization;
 
     // Map difficulty domain checkboxes to the difficulty field (DB expects lowercase)
     if (!finalData.difficulty && formDifficultyDomain.length > 0) {
