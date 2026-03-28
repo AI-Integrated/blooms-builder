@@ -283,6 +283,31 @@ export default function QuestionBankManager() {
     if (formCustomCategory) finalData.category = formCustomCategory;
     if (formCustomSpecialization) finalData.specialization = formCustomSpecialization;
 
+    // Map difficulty domain checkboxes to the difficulty field (DB expects lowercase)
+    if (!finalData.difficulty && formDifficultyDomain.length > 0) {
+      // Use the first selected difficulty, lowercased to match DB constraint
+      finalData.difficulty = formDifficultyDomain[0].toLowerCase();
+    }
+
+    // Sync bloom_level from cognitive_level if not set
+    if (!finalData.bloom_level && finalData.cognitive_level) {
+      finalData.bloom_level = finalData.cognitive_level;
+    }
+
+    // Ensure topic has a value (required NOT NULL in DB)
+    if (!finalData.topic) {
+      finalData.topic = finalData.subject_description || finalData.subject_code || finalData.category || "General";
+    }
+
+    // Ensure choices is proper JSON for the DB
+    if (finalData.question_type === "mcq" && typeof finalData.choices === "object" && !Array.isArray(finalData.choices)) {
+      // Already an object like {A, B, C, D} - keep as is
+    } else if (finalData.question_type === "true_false") {
+      finalData.choices = { A: "True", B: "False" } as any;
+    } else if (["identification", "essay", "fill_blank"].includes(finalData.question_type)) {
+      finalData.choices = null as any;
+    }
+
     if (editingId) updateMutation.mutate({ id: editingId, data: finalData });
     else createMutation.mutate(finalData);
   };
