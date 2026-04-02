@@ -158,6 +158,39 @@ export type Database = {
           },
         ]
       }
+      ai_conversations: {
+        Row: {
+          active_intent: string | null
+          created_at: string
+          id: string
+          last_message_at: string
+          messages: Json
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active_intent?: string | null
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          messages?: Json
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active_intent?: string | null
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          messages?: Json
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_generation_logs: {
         Row: {
           approved_at: string | null

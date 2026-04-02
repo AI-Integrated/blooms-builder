@@ -9,11 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
+import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Brain, Send, Loader2, User, Trash2, Sparkles, FileQuestion,
   Tag, BarChart3, BookOpen, CheckCircle, AlertTriangle, Save,
-  PlusCircle, Search, Wand2, ArrowRight, Copy, RefreshCw
+  PlusCircle, Search, Wand2, ArrowRight, Copy, RefreshCw,
+  MessageSquare, Clock, Plus
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -26,6 +28,15 @@ interface Message {
   structured?: boolean;
   data?: any;
   intent?: IntentType;
+}
+
+interface Conversation {
+  id: string;
+  title: string;
+  messages: Message[];
+  active_intent: IntentType | null;
+  last_message_at: string;
+  created_at: string;
 }
 
 interface GeneratedQuestion {
@@ -69,9 +80,15 @@ export default function AIAssistant() {
   const [isLoading, setIsLoading] = useState(false);
   const [activeIntent, setActiveIntent] = useState<IntentType | null>(null);
   const [savingQuestions, setSavingQuestions] = useState<Set<number>>(new Set());
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [loadingConversations, setLoadingConversations] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
+  const { isAdmin } = useUserRole();
 
   // Generate form state
   const [genTopic, setGenTopic] = useState("");
@@ -84,6 +101,106 @@ export default function AIAssistant() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
+  // ─── Load conversations from DB ───
+  useEffect(() => {
+    if (!user) return;
+    loadConversations();
+  }, [user]);
+
+  const loadConversations = async () => {
+    if (!user) return;
+    setLoadingConversations(true);
+    try {
+      const { data, error } = await supabase
+        .from("ai_conversations")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("last_message_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      const convos: Conversation[] = (data || []).map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        messages: (row.messages as any[]) || [],
+        active_intent: row.active_intent,
+        last_message_at: row.last_message_at,
+        created_at: row.created_at,
+      }));
+      setConversations(convos);
+    } catch (err) {
+      console.error("Failed to load conversations:", err);
+    } finally {
+      setLoadingConversations(false);
+    }
+  };
+
+  // ─── Save conversation to DB (debounced) ───
+  const saveConversation = useCallback(async (convId: string, msgs: Message[], intent: IntentType | null) => {
+    if (!user || msgs.length === 0) return;
+    try {
+      // Generate title from first user message
+      const firstUserMsg = msgs.find(m => m.role === "user");
+      const title = firstUserMsg ? firstUserMsg.content.substring(0, 80) + (firstUserMsg.content.length > 80 ? "..." : "") : "New Conversation";
+
+      const { error } = await supabase
+        .from("ai_conversations")
+        .upsert({
+          id: convId,
+          user_id: user.id,
+          title,
+          messages: msgs as any,
+          active_intent: intent,
+          last_message_at: new Date().toISOString(),
+        });
+      if (error) throw error;
+
+      // Update local state
+      setConversations(prev => {
+        const exists = prev.find(c => c.id === convId);
+        if (exists) {
+          return prev.map(c => c.id === convId ? { ...c, title, messages: msgs, active_intent: intent, last_message_at: new Date().toISOString() } : c)
+            .sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+        }
+        return [{ id: convId, title, messages: msgs, active_intent: intent, last_message_at: new Date().toISOString(), created_at: new Date().toISOString() }, ...prev];
+      });
+    } catch (err) {
+      console.error("Failed to save conversation:", err);
+    }
+  }, [user]);
+
+  const debouncedSave = useCallback((convId: string, msgs: Message[], intent: IntentType | null) => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => saveConversation(convId, msgs, intent), 1000);
+  }, [saveConversation]);
+
+  // ─── Load a conversation ───
+  const loadConversation = (conv: Conversation) => {
+    setActiveConversationId(conv.id);
+    setMessages(conv.messages);
+    setActiveIntent(conv.active_intent as IntentType | null);
+  };
+
+  // ─── Start new conversation ───
+  const startNewConversation = () => {
+    setActiveConversationId(null);
+    setMessages([]);
+    setActiveIntent(null);
+  };
+
+  // ─── Delete conversation ───
+  const deleteConversation = async (convId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await supabase.from("ai_conversations").delete().eq("id", convId);
+      setConversations(prev => prev.filter(c => c.id !== convId));
+      if (activeConversationId === convId) {
+        startNewConversation();
+      }
+    } catch (err) {
+      console.error("Failed to delete conversation:", err);
+    }
+  };
+
   // ─── Send message ───
   const sendMessage = useCallback(async (text: string, intent?: IntentType) => {
     if (!text.trim() || isLoading) return;
@@ -93,6 +210,13 @@ export default function AIAssistant() {
     setMessages(updatedMessages);
     setInput("");
     setIsLoading(true);
+
+    // Create or reuse conversation ID
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = crypto.randomUUID();
+      setActiveConversationId(convId);
+    }
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -119,10 +243,20 @@ export default function AIAssistant() {
 
       if (contentType.includes("application/json")) {
         const data = await resp.json();
-        if (data.refusal) { setMessages(prev => [...prev, { role: "assistant", content: data.message }]); return; }
-        if (data.structured && data.data) { setMessages(prev => [...prev, { role: "assistant", content: data.message, structured: true, data: data.data, intent: data.intent }]); return; }
-        if (data.message) { setMessages(prev => [...prev, { role: "assistant", content: data.message }]); return; }
-        if (data.error) throw new Error(data.error);
+        let finalMessages: Message[];
+        if (data.refusal) {
+          finalMessages = [...updatedMessages, { role: "assistant" as const, content: data.message }];
+        } else if (data.structured && data.data) {
+          finalMessages = [...updatedMessages, { role: "assistant" as const, content: data.message, structured: true, data: data.data, intent: data.intent }];
+        } else if (data.message) {
+          finalMessages = [...updatedMessages, { role: "assistant" as const, content: data.message }];
+        } else if (data.error) {
+          throw new Error(data.error);
+        } else {
+          finalMessages = updatedMessages;
+        }
+        setMessages(finalMessages);
+        debouncedSave(convId!, finalMessages, activeIntent);
         return;
       }
 
@@ -160,12 +294,18 @@ export default function AIAssistant() {
           } catch { textBuffer = line + "\n" + textBuffer; break; }
         }
       }
+
+      // Save after stream completes
+      setMessages(prev => {
+        debouncedSave(convId!, prev, activeIntent);
+        return prev;
+      });
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, toast, activeIntent]);
+  }, [messages, isLoading, toast, activeIntent, activeConversationId, debouncedSave]);
 
   // ─── Save question ───
   const saveQuestion = async (question: GeneratedQuestion, index: number) => {
@@ -339,237 +479,309 @@ export default function AIAssistant() {
     return null;
   };
 
+  // Filter modes based on role — non-admins can't see Statistics if it involves user data
+  const availableModes = MODES.filter(mode => {
+    if (mode.id === "system_stats" && !isAdmin) {
+      // Teachers still see it but the backend restricts user-related data
+      return true;
+    }
+    return true;
+  });
+
   return (
-    <div className="flex flex-col h-[calc(100vh-0px)] lg:h-screen">
-      {/* Header */}
-      <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-card shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
-            <Brain className="w-5 h-5 text-primary-foreground" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold">AI Assistant</h1>
-            <p className="text-xs text-muted-foreground">System-Aware Academic Tool</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {activeIntent && (
-            <Badge variant="secondary" className="text-xs gap-1">
-              {MODES.find(m => m.id === activeIntent)?.label} Mode
-            </Badge>
-          )}
-          {activeIntent && (
-            <Button variant="outline" size="sm" onClick={() => setActiveIntent(null)} className="text-xs">
-              ← All Modes
+    <div className="flex h-[calc(100vh-0px)] lg:h-screen">
+      {/* Conversation Sidebar */}
+      {showSidebar && (
+        <div className="w-64 border-r border-border bg-muted/30 flex flex-col shrink-0">
+          <div className="p-3 border-b border-border">
+            <Button onClick={startNewConversation} className="w-full text-xs" size="sm">
+              <Plus className="w-3.5 h-3.5 mr-1.5" /> New Conversation
             </Button>
-          )}
-          {messages.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => { setMessages([]); setActiveIntent(null); }} className="text-muted-foreground hover:text-destructive">
-              <Trash2 className="w-4 h-4 mr-1" /> Clear
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Chat Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="max-w-3xl mx-auto space-y-6">
-          {messages.length === 0 && !activeIntent ? (
-            /* ─── Home: Mode selector ─── */
-            <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-center space-y-8">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <Sparkles className="w-8 h-8 text-primary" />
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {loadingConversations ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
               </div>
-              <div>
-                <h2 className="text-xl font-semibold mb-2">How can I help you today?</h2>
-                <p className="text-muted-foreground text-sm max-w-md">
-                  Select a mode below to get started, or ask a question directly.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-2xl">
-                {MODES.map((mode) => (
-                  <button key={mode.id} onClick={() => setActiveIntent(mode.id)} className={`${mode.bgColor} border border-border rounded-xl p-4 text-left hover:shadow-md transition-all`}>
-                    <mode.icon className={`w-5 h-5 ${mode.color} mb-2`} />
-                    <p className="text-sm font-medium">{mode.label}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{mode.description}</p>
-                  </button>
-                ))}
-              </div>
-
-              <div className="w-full max-w-2xl flex gap-2">
-                <Textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Or ask any academic question..." className="min-h-[44px] max-h-32 resize-none" rows={1} disabled={isLoading} />
-                <Button onClick={() => sendMessage(input)} disabled={!input.trim() || isLoading} size="icon" className="shrink-0 h-[44px] w-[44px]">
-                  <Send className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-
-          ) : messages.length === 0 && activeIntent ? (
-            /* ─── Mode-specific guided UI ─── */
-            <div className="space-y-6 max-w-2xl mx-auto">
-              {activeIntent === "generate_questions" && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <PlusCircle className="w-5 h-5 text-emerald-600" /> Generate Questions
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Topic *</label>
-                      <Input value={genTopic} onChange={(e) => setGenTopic(e.target.value)} placeholder="e.g., Photosynthesis, Data Structures" />
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Type</label>
-                        <Select value={genType} onValueChange={setGenType}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="mcq">Multiple Choice</SelectItem>
-                            <SelectItem value="true_false">True/False</SelectItem>
-                            <SelectItem value="identification">Identification</SelectItem>
-                            <SelectItem value="essay">Essay</SelectItem>
-                            <SelectItem value="fill_in_the_blank">Fill in the Blank</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Count</label>
-                        <Select value={genCount} onValueChange={setGenCount}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {[1, 2, 3, 5, 10, 15, 20].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Difficulty</label>
-                        <Select value={genDifficulty} onValueChange={setGenDifficulty}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="easy">Easy</SelectItem>
-                            <SelectItem value="average">Average</SelectItem>
-                            <SelectItem value="difficult">Difficult</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Bloom's Level</label>
-                        <Select value={genBloom} onValueChange={setGenBloom}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="remembering">Remembering</SelectItem>
-                            <SelectItem value="understanding">Understanding</SelectItem>
-                            <SelectItem value="applying">Applying</SelectItem>
-                            <SelectItem value="analyzing">Analyzing</SelectItem>
-                            <SelectItem value="evaluating">Evaluating</SelectItem>
-                            <SelectItem value="creating">Creating</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <Button onClick={handleGenerateSubmit} disabled={isLoading} className="w-full">
-                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                      Generate Questions
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-
-              {activeIntent !== "generate_questions" && (
-                <>
-                  <div className="text-center space-y-2 pt-4">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto">
-                      {(() => { const m = MODES.find(a => a.id === activeIntent); return m ? <m.icon className={`w-6 h-6 ${m.color}`} /> : <Brain className="w-6 h-6 text-primary" />; })()}
-                    </div>
-                    <h3 className="text-lg font-semibold">{MODES.find(a => a.id === activeIntent)?.label}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {activeIntent === "classify_question" && "Paste a question below to classify its Bloom's level, difficulty, and knowledge dimension."}
-                      {activeIntent === "improve_question" && "Paste a question below to improve grammar, clarity, and Bloom's alignment."}
-                      {activeIntent === "assign_topic" && "Paste a question below to identify its topic, subject, and specialization."}
-                      {activeIntent === "system_stats" && "Ask about question bank statistics and analytics."}
-                      {activeIntent === "explain_concept" && "Ask about any academic or educational concept."}
+            ) : conversations.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-8">No conversations yet</p>
+            ) : (
+              conversations.map((conv) => (
+                <button
+                  key={conv.id}
+                  onClick={() => loadConversation(conv)}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors group flex items-start gap-2 ${
+                    activeConversationId === conv.id
+                      ? "bg-primary/10 text-primary"
+                      : "hover:bg-accent text-foreground"
+                  }`}
+                >
+                  <MessageSquare className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate font-medium">{conv.title}</p>
+                    <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <Clock className="w-2.5 h-2.5" />
+                      {new Date(conv.last_message_at).toLocaleDateString()}
                     </p>
                   </div>
-
-                  {QUICK_PROMPTS[activeIntent]?.length > 0 && (
-                    <div className="flex flex-wrap gap-2 justify-center">
-                      {QUICK_PROMPTS[activeIntent].map((prompt) => (
-                        <button key={prompt} onClick={() => sendMessage(prompt, activeIntent)} className="px-3 py-2 rounded-lg border border-border bg-card text-xs hover:bg-accent hover:text-accent-foreground transition-colors text-left max-w-xs">
-                          {prompt}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex gap-2 max-w-2xl mx-auto">
-                    <Textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
-                      placeholder={
-                        activeIntent === "classify_question" ? "Paste a question to classify..." :
-                        activeIntent === "improve_question" ? "Paste a question to improve..." :
-                        activeIntent === "assign_topic" ? "Paste a question to assign topic..." :
-                        activeIntent === "system_stats" ? "Ask about statistics..." : "Ask your question..."
-                      }
-                      className="min-h-[44px] max-h-32 resize-none" rows={2} disabled={isLoading}
-                    />
-                    <Button onClick={() => sendMessage(input, activeIntent)} disabled={!input.trim() || isLoading} size="icon" className="shrink-0 h-[44px] w-[44px]">
-                      <Send className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          ) : (
-            /* ─── Conversation messages ─── */
-            messages.map((msg, i) => (
-              <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
-                {msg.role === "assistant" && (
-                  <Avatar className="h-8 w-8 shrink-0 mt-1">
-                    <AvatarFallback className="bg-primary text-primary-foreground text-xs"><Brain className="w-4 h-4" /></AvatarFallback>
-                  </Avatar>
-                )}
-                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                  {msg.role === "assistant" ? (
-                    <div>
-                      <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
-                      </div>
-                      {renderStructuredContent(msg)}
-                    </div>
-                  ) : (
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
-                  )}
-                </div>
-                {msg.role === "user" && (
-                  <Avatar className="h-8 w-8 shrink-0 mt-1">
-                    <AvatarFallback className="bg-accent text-accent-foreground text-xs"><User className="w-4 h-4" /></AvatarFallback>
-                  </Avatar>
-                )}
-              </div>
-            ))
-          )}
-
-          {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
-            <div className="flex gap-3">
-              <Avatar className="h-8 w-8 shrink-0"><AvatarFallback className="bg-primary text-primary-foreground text-xs"><Brain className="w-4 h-4" /></AvatarFallback></Avatar>
-              <div className="bg-muted rounded-2xl px-4 py-3"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom input for active conversation */}
-      {messages.length > 0 && (
-        <div className="border-t border-border p-4 bg-card shrink-0">
-          <div className="max-w-3xl mx-auto flex gap-2">
-            <Textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Continue the conversation..." className="min-h-[44px] max-h-32 resize-none" rows={1} disabled={isLoading} />
-            <Button onClick={() => sendMessage(input)} disabled={!input.trim() || isLoading} size="icon" className="shrink-0 h-[44px] w-[44px]">
-              <Send className="w-4 h-4" />
-            </Button>
+                  <button
+                    onClick={(e) => deleteConversation(conv.id, e)}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-destructive transition-opacity"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </button>
+              ))
+            )}
           </div>
+          {!isAdmin && (
+            <div className="p-2 border-t border-border">
+              <p className="text-[10px] text-muted-foreground text-center">
+                Your conversations are private and only visible to you.
+              </p>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Main Content */}
+      <div className="flex flex-col flex-1 min-w-0">
+        {/* Header */}
+        <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-card shrink-0">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={() => setShowSidebar(!showSidebar)} className="text-muted-foreground">
+              <MessageSquare className="w-4 h-4" />
+            </Button>
+            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
+              <Brain className="w-5 h-5 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold">AI Assistant</h1>
+              <p className="text-xs text-muted-foreground">
+                System-Aware Academic Tool
+                {isAdmin && <Badge variant="secondary" className="ml-2 text-[10px]">Admin</Badge>}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {activeIntent && (
+              <Badge variant="secondary" className="text-xs gap-1">
+                {MODES.find(m => m.id === activeIntent)?.label} Mode
+              </Badge>
+            )}
+            {activeIntent && (
+              <Button variant="outline" size="sm" onClick={() => setActiveIntent(null)} className="text-xs">
+                ← All Modes
+              </Button>
+            )}
+            {messages.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={startNewConversation} className="text-muted-foreground hover:text-destructive">
+                <Trash2 className="w-4 h-4 mr-1" /> Clear
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Chat Area */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6">
+          <div className="max-w-3xl mx-auto space-y-6">
+            {messages.length === 0 && !activeIntent ? (
+              /* ─── Home: Mode selector ─── */
+              <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-center space-y-8">
+                <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                  <Sparkles className="w-8 h-8 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold mb-2">How can I help you today?</h2>
+                  <p className="text-muted-foreground text-sm max-w-md">
+                    Select a mode below to get started, or ask a question directly.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-2xl">
+                  {availableModes.map((mode) => (
+                    <button key={mode.id} onClick={() => setActiveIntent(mode.id)} className={`${mode.bgColor} border border-border rounded-xl p-4 text-left hover:shadow-md transition-all`}>
+                      <mode.icon className={`w-5 h-5 ${mode.color} mb-2`} />
+                      <p className="text-sm font-medium">{mode.label}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{mode.description}</p>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="w-full max-w-2xl flex gap-2">
+                  <Textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Or ask any academic question..." className="min-h-[44px] max-h-32 resize-none" rows={1} disabled={isLoading} />
+                  <Button onClick={() => sendMessage(input)} disabled={!input.trim() || isLoading} size="icon" className="shrink-0 h-[44px] w-[44px]">
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+            ) : messages.length === 0 && activeIntent ? (
+              /* ─── Mode-specific guided UI ─── */
+              <div className="space-y-6 max-w-2xl mx-auto">
+                {activeIntent === "generate_questions" && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <PlusCircle className="w-5 h-5 text-emerald-600" /> Generate Questions
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Topic *</label>
+                        <Input value={genTopic} onChange={(e) => setGenTopic(e.target.value)} placeholder="e.g., Photosynthesis, Data Structures" />
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Type</label>
+                          <Select value={genType} onValueChange={setGenType}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="mcq">Multiple Choice</SelectItem>
+                              <SelectItem value="true_false">True/False</SelectItem>
+                              <SelectItem value="identification">Identification</SelectItem>
+                              <SelectItem value="essay">Essay</SelectItem>
+                              <SelectItem value="fill_in_the_blank">Fill in the Blank</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Count</label>
+                          <Select value={genCount} onValueChange={setGenCount}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {[1, 2, 3, 5, 10, 15, 20].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Difficulty</label>
+                          <Select value={genDifficulty} onValueChange={setGenDifficulty}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="easy">Easy</SelectItem>
+                              <SelectItem value="average">Average</SelectItem>
+                              <SelectItem value="difficult">Difficult</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Bloom's Level</label>
+                          <Select value={genBloom} onValueChange={setGenBloom}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="remembering">Remembering</SelectItem>
+                              <SelectItem value="understanding">Understanding</SelectItem>
+                              <SelectItem value="applying">Applying</SelectItem>
+                              <SelectItem value="analyzing">Analyzing</SelectItem>
+                              <SelectItem value="evaluating">Evaluating</SelectItem>
+                              <SelectItem value="creating">Creating</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <Button onClick={handleGenerateSubmit} disabled={isLoading} className="w-full">
+                        {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                        Generate Questions
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {activeIntent !== "generate_questions" && (
+                  <>
+                    <div className="text-center space-y-2 pt-4">
+                      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto">
+                        {(() => { const m = MODES.find(a => a.id === activeIntent); return m ? <m.icon className={`w-6 h-6 ${m.color}`} /> : <Brain className="w-6 h-6 text-primary" />; })()}
+                      </div>
+                      <h3 className="text-lg font-semibold">{MODES.find(a => a.id === activeIntent)?.label}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {activeIntent === "classify_question" && "Paste a question below to classify its Bloom's level, difficulty, and knowledge dimension."}
+                        {activeIntent === "improve_question" && "Paste a question below to improve grammar, clarity, and Bloom's alignment."}
+                        {activeIntent === "assign_topic" && "Paste a question below to identify its topic, subject, and specialization."}
+                        {activeIntent === "system_stats" && (isAdmin ? "Ask about question bank statistics and system analytics." : "Ask about question bank statistics (topic distribution, Bloom's levels, etc.).")}
+                        {activeIntent === "explain_concept" && "Ask about any academic or educational concept."}
+                      </p>
+                    </div>
+
+                    {QUICK_PROMPTS[activeIntent]?.length > 0 && (
+                      <div className="flex flex-wrap gap-2 justify-center">
+                        {QUICK_PROMPTS[activeIntent].map((prompt) => (
+                          <button key={prompt} onClick={() => sendMessage(prompt, activeIntent)} className="px-3 py-2 rounded-lg border border-border bg-card text-xs hover:bg-accent hover:text-accent-foreground transition-colors text-left max-w-xs">
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 max-w-2xl mx-auto">
+                      <Textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
+                        placeholder={
+                          activeIntent === "classify_question" ? "Paste a question to classify..." :
+                          activeIntent === "improve_question" ? "Paste a question to improve..." :
+                          activeIntent === "assign_topic" ? "Paste a question to assign topic..." :
+                          activeIntent === "system_stats" ? "Ask about statistics..." : "Ask your question..."
+                        }
+                        className="min-h-[44px] max-h-32 resize-none" rows={2} disabled={isLoading}
+                      />
+                      <Button onClick={() => sendMessage(input, activeIntent)} disabled={!input.trim() || isLoading} size="icon" className="shrink-0 h-[44px] w-[44px]">
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              /* ─── Conversation messages ─── */
+              messages.map((msg, i) => (
+                <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
+                  {msg.role === "assistant" && (
+                    <Avatar className="h-8 w-8 shrink-0 mt-1">
+                      <AvatarFallback className="bg-primary text-primary-foreground text-xs"><Brain className="w-4 h-4" /></AvatarFallback>
+                    </Avatar>
+                  )}
+                  <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                    {msg.role === "assistant" ? (
+                      <div>
+                        <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        </div>
+                        {renderStructuredContent(msg)}
+                      </div>
+                    ) : (
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                    )}
+                  </div>
+                  {msg.role === "user" && (
+                    <Avatar className="h-8 w-8 shrink-0 mt-1">
+                      <AvatarFallback className="bg-accent text-accent-foreground text-xs"><User className="w-4 h-4" /></AvatarFallback>
+                    </Avatar>
+                  )}
+                </div>
+              ))
+            )}
+
+            {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
+              <div className="flex gap-3">
+                <Avatar className="h-8 w-8 shrink-0"><AvatarFallback className="bg-primary text-primary-foreground text-xs"><Brain className="w-4 h-4" /></AvatarFallback></Avatar>
+                <div className="bg-muted rounded-2xl px-4 py-3"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Bottom input for active conversation */}
+        {messages.length > 0 && (
+          <div className="border-t border-border p-4 bg-card shrink-0">
+            <div className="max-w-3xl mx-auto flex gap-2">
+              <Textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Continue the conversation..." className="min-h-[44px] max-h-32 resize-none" rows={1} disabled={isLoading} />
+              <Button onClick={() => sendMessage(input)} disabled={!input.trim() || isLoading} size="icon" className="shrink-0 h-[44px] w-[44px]">
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
