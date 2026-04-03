@@ -210,6 +210,7 @@ export default function AIAssistant() {
     setMessages(updatedMessages);
     setInput("");
     setIsLoading(true);
+    setShowSidebar(false);
 
     // Create or reuse conversation ID
     let convId = activeConversationId;
