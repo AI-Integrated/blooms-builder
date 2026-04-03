@@ -491,14 +491,8 @@ export default function AIAssistant() {
 
   return (
     <div className="flex h-[calc(100vh-0px)] lg:h-screen">
-      {/* Conversation Sidebar */}
-      {showSidebar && (
-        <div className="w-64 border-r border-border bg-muted/30 flex flex-col shrink-0">
-          <div className="p-3 border-b border-border">
-            <Button onClick={startNewConversation} className="w-full text-xs" size="sm">
-              <Plus className="w-3.5 h-3.5 mr-1.5" /> New Conversation
-            </Button>
-          </div>
+      {/* Main Content */}
+      <div className="flex flex-col flex-1 min-w-0">
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {loadingConversations ? (
               <div className="flex items-center justify-center py-8">
