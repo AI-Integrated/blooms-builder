@@ -64,7 +64,7 @@ export function QuestionBankList() {
       const { supabase } = await import('@/integrations/supabase/client');
       const { error } = await supabase
         .from('questions')
-        .delete()
+        .update({ deleted: true, updated_at: new Date().toISOString() } as any)
         .eq('id', questionId);
 
       if (error) throw error;
@@ -72,7 +72,7 @@ export function QuestionBankList() {
       setQuestions(questions.filter(q => q.id !== questionId));
       toast({
         title: "Question Deleted",
-        description: "Question has been removed from the bank.",
+        description: "Question has been moved to Recently Deleted.",
       });
     } catch (error) {
       console.error('Error deleting question:', error);
