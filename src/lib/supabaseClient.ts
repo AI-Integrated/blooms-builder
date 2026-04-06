@@ -96,7 +96,7 @@ export async function updateQuestion(id: string, updates: Partial<Question>): Pr
 export async function deleteQuestion(id: string): Promise<void> {
   const { error } = await supabase
     .from('questions')
-    .delete()
+    .update({ deleted: true, updated_at: new Date().toISOString() } as any)
     .eq('id', id);
 
   if (error) throw error;
