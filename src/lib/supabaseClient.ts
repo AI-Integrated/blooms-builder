@@ -108,7 +108,7 @@ export async function getQuestions(filters?: {
   difficulty?: string;
   approved?: boolean;
 }): Promise<Question[]> {
-  let query = supabase.from('questions').select('*');
+  let query = supabase.from('questions').select('*').eq('deleted', false);
 
   if (filters?.topic) {
     query = query.eq('topic', filters.topic);
