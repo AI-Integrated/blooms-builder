@@ -42,6 +42,7 @@ export function QuestionBankList() {
       const { data, error } = await supabase
         .from('questions')
         .select('*')
+        .eq('deleted', false)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
