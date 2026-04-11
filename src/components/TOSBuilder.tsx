@@ -67,6 +67,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   
   const [topics, setTopics] = useState([{ topic: "", hours: 0 }]);
   const [tosMatrix, setTosMatrix] = useState<CanonicalTOSMatrix | null>(null);
+  const [autoGeneratePending, setAutoGeneratePending] = useState(false);
   const [showMatrix, setShowMatrix] = useState(false);
   const [sufficiencyAnalysis, setSufficiencyAnalysis] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -175,6 +176,15 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       });
     }
   }, [location.state, reset]);
+
+  // Auto-generate matrix after file upload populates form
+  useEffect(() => {
+    if (autoGeneratePending) {
+      setAutoGeneratePending(false);
+      // Trigger form submission programmatically
+      handleSubmit(onSubmit)();
+    }
+  }, [autoGeneratePending]);
 
   const watchedTotalItems = watch("total_items");
 
@@ -567,7 +577,8 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
           <TOSUploadParser onParsed={(data) => {
             const parsedTopics = data.topics.length > 0 ? data.topics : [{ topic: "", hours: 0 }];
             setTopics(parsedTopics);
-            reset({
+            
+            const formData = {
               subject_no: data.subject_no || "",
               course: data.course || "",
               description: data.description || "",
@@ -579,7 +590,32 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
               checked_by: data.checked_by || "",
               noted_by: data.noted_by || "",
               topics: parsedTopics,
-            });
+            };
+            
+            reset(formData);
+
+            // Check which required fields are missing
+            const missingFields: string[] = [];
+            if (!formData.subject_no) missingFields.push("Subject No.");
+            if (!formData.course) missingFields.push("Course");
+            if (!formData.description) missingFields.push("Subject Description");
+            if (!formData.year_section) missingFields.push("Year & Section");
+            if (!formData.exam_period) missingFields.push("Exam Period");
+            if (!formData.school_year) missingFields.push("School Year");
+            
+            const hasValidTopics = parsedTopics.some(t => t.topic && t.hours > 0);
+            if (!hasValidTopics) missingFields.push("Topics with hours");
+
+            if (missingFields.length > 0) {
+              toast.warning("Some fields could not be extracted", {
+                description: `Please fill in: ${missingFields.join(", ")}. Then click "Generate TOS Matrix".`,
+                duration: 8000,
+              });
+            } else {
+              // All required fields present — auto-generate matrix
+              toast.success("All fields extracted! Generating TOS Matrix...");
+              setAutoGeneratePending(true);
+            }
           }} />
         </CardHeader>
         <CardContent>
