@@ -1,22 +1,9 @@
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload, FileText, Loader2 } from "lucide-react";
+import { Upload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-
-interface ParsedTOSData {
-  subject_no: string;
-  course: string;
-  description: string;
-  year_section: string;
-  exam_period: string;
-  school_year: string;
-  total_items: number;
-  prepared_by: string;
-  checked_by: string;
-  noted_by: string;
-  topics: Array<{ topic: string; hours: number }>;
-}
+import { TOSReviewDialog, ParsedTOSData } from "./TOSReviewDialog";
 
 interface TOSUploadParserProps {
   onParsed: (data: ParsedTOSData) => void;
@@ -25,6 +12,8 @@ interface TOSUploadParserProps {
 export function TOSUploadParser({ onParsed }: TOSUploadParserProps) {
   const [isParsing, setIsParsing] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [reviewData, setReviewData] = useState<ParsedTOSData | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,18 +63,21 @@ export function TOSUploadParser({ onParsed }: TOSUploadParserProps) {
 
       const parsed: ParsedTOSData = await response.json();
 
-      // Count how many fields were extracted
-      const filledFields = [
-        parsed.subject_no, parsed.course, parsed.description,
-        parsed.year_section, parsed.exam_period, parsed.school_year,
-        parsed.prepared_by, parsed.noted_by,
-      ].filter(f => f && f.length > 0).length;
+      // Open review dialog instead of directly applying
+      setReviewData(parsed);
+      setReviewOpen(true);
 
-      onParsed(parsed);
-
-      toast.success("TOS Document Parsed", {
-        description: `Extracted ${filledFields} fields and ${parsed.topics.length} topic(s) from "${file.name}".`,
-      });
+      const warnings = parsed._warnings || [];
+      if (warnings.length > 0) {
+        toast.info("Document parsed — please review extracted data", {
+          description: `${warnings.length} warning(s) found. Verify before applying.`,
+          duration: 5000,
+        });
+      } else {
+        toast.success("Document parsed successfully!", {
+          description: "Review the extracted data and click Apply.",
+        });
+      }
     } catch (error) {
       console.error("TOS parse error:", error);
       toast.error("Failed to parse document", {
@@ -93,46 +85,71 @@ export function TOSUploadParser({ onParsed }: TOSUploadParserProps) {
       });
     } finally {
       setIsParsing(false);
-      // Reset file input so same file can be re-uploaded
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     }
   };
 
+  const handleConfirm = (confirmed: ParsedTOSData) => {
+    onParsed(confirmed);
+    setReviewData(null);
+    
+    const filledFields = [
+      confirmed.subject_no, confirmed.course, confirmed.description,
+      confirmed.year_section, confirmed.exam_period, confirmed.school_year,
+    ].filter(f => f && f.length > 0).length;
+
+    toast.success("TOS Data Applied", {
+      description: `${filledFields} fields and ${confirmed.topics.length} topic(s) applied to the builder.`,
+    });
+  };
+
   return (
-    <div className="flex items-center gap-2">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".pdf,.docx,.doc"
-        onChange={handleFileSelect}
-        className="hidden"
-        id="tos-upload"
-      />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={isParsing}
-        className="gap-2"
-      >
-        {isParsing ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Parsing {fileName ? `"${fileName}"` : "..."}
-          </>
-        ) : (
-          <>
-            <Upload className="h-4 w-4" />
-            Upload Existing TOS
-          </>
+    <>
+      <div className="flex items-center gap-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,.doc"
+          onChange={handleFileSelect}
+          className="hidden"
+          id="tos-upload"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isParsing}
+          className="gap-2"
+        >
+          {isParsing ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Parsing {fileName ? `"${fileName}"` : "..."}
+            </>
+          ) : (
+            <>
+              <Upload className="h-4 w-4" />
+              Upload Existing TOS
+            </>
+          )}
+        </Button>
+        {!isParsing && (
+          <span className="text-xs text-muted-foreground">PDF or DOCX</span>
         )}
-      </Button>
-      {!isParsing && (
-        <span className="text-xs text-muted-foreground">PDF or DOCX</span>
+      </div>
+
+      {reviewData && (
+        <TOSReviewDialog
+          open={reviewOpen}
+          onOpenChange={setReviewOpen}
+          data={reviewData}
+          fileName={fileName || "document"}
+          onConfirm={handleConfirm}
+        />
       )}
-    </div>
+    </>
   );
 }
