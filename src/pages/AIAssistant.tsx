@@ -15,7 +15,7 @@ import {
   Brain, Send, Loader2, User, Trash2, Sparkles, FileQuestion,
   Tag, BarChart3, BookOpen, CheckCircle, AlertTriangle, Save,
   PlusCircle, Search, Wand2, ArrowRight, Copy, RefreshCw,
-  MessageSquare, Clock, Plus
+  MessageSquare, Clock, Plus, FileText, Target, Lightbulb, ListChecks
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -533,7 +533,7 @@ export default function AIAssistant() {
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6">
           <div className="max-w-3xl mx-auto space-y-6">
             {messages.length === 0 && !activeIntent ? (
-              /* ─── Home: Mode selector ─── */
+              /* ─── Conversation Starters ─── */
               <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-center space-y-8">
                 <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
                   <Sparkles className="w-8 h-8 text-primary" />
@@ -541,16 +541,41 @@ export default function AIAssistant() {
                 <div>
                   <h2 className="text-xl font-semibold mb-2">How can I help you today?</h2>
                   <p className="text-muted-foreground text-sm max-w-md">
-                    Select a mode below to get started, or ask a question directly.
+                    Try one of these to get started, or type your own question below.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-2xl">
-                  {availableModes.map((mode) => (
-                    <button key={mode.id} onClick={() => setActiveIntent(mode.id)} className={`${mode.bgColor} border border-border rounded-xl p-4 text-left hover:shadow-md transition-all`}>
-                      <mode.icon className={`w-5 h-5 ${mode.color} mb-2`} />
-                      <p className="text-sm font-medium">{mode.label}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{mode.description}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full max-w-3xl">
+                  {(isAdmin ? [
+                    { icon: BarChart3, text: "Show me question bank statistics and distribution", color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/50" },
+                    { icon: PlusCircle, text: "Generate 10 MCQ questions about Data Structures", color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50" },
+                    { icon: Wand2, text: "How do I improve question quality for assessments?", color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-950/30 hover:bg-orange-100 dark:hover:bg-orange-950/50" },
+                    { icon: BookOpen, text: "Explain Bloom's Taxonomy with assessment examples", color: "text-rose-600", bg: "bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50" },
+                    { icon: Tag, text: "Classify this: What are the layers of the OSI model?", color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-950/50" },
+                    { icon: ListChecks, text: "Generate 5 True/False questions on Computer Networks", color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-950/30 hover:bg-purple-100 dark:hover:bg-purple-950/50" },
+                    { icon: Target, text: "What makes a good distractor in multiple choice items?", color: "text-teal-600", bg: "bg-teal-50 dark:bg-teal-950/30 hover:bg-teal-100 dark:hover:bg-teal-950/50" },
+                    { icon: FileText, text: "How should I structure a Table of Specifications?", color: "text-indigo-600", bg: "bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-950/50" },
+                    { icon: Lightbulb, text: "Suggest topics for a midterm exam in Database Systems", color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-950/30 hover:bg-yellow-100 dark:hover:bg-yellow-950/50" },
+                  ] : [
+                    { icon: PlusCircle, text: "Generate 5 MCQ questions about Photosynthesis", color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50" },
+                    { icon: Tag, text: "Classify this: What is the function of mitochondria?", color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-950/50" },
+                    { icon: Wand2, text: "Improve this question: What is the answer of 1+1?", color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-950/30 hover:bg-orange-100 dark:hover:bg-orange-950/50" },
+                    { icon: BookOpen, text: "What are effective strategies for creating assessments?", color: "text-rose-600", bg: "bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50" },
+                    { icon: ListChecks, text: "Create 3 essay questions about the Solar System", color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-950/30 hover:bg-purple-100 dark:hover:bg-purple-950/50" },
+                    { icon: FileText, text: "How do I build a Table of Specifications for my exam?", color: "text-indigo-600", bg: "bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-950/50" },
+                    { icon: Target, text: "Explain the difference between Applying and Analyzing", color: "text-teal-600", bg: "bg-teal-50 dark:bg-teal-950/30 hover:bg-teal-100 dark:hover:bg-teal-950/50" },
+                    { icon: Lightbulb, text: "Suggest topics for a final exam in General Biology", color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-950/30 hover:bg-yellow-100 dark:hover:bg-yellow-950/50" },
+                    { icon: Search, text: "What Bloom's level is: Compare TCP and UDP protocols?", color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-950/30 hover:bg-cyan-100 dark:hover:bg-cyan-950/50" },
+                  ]).map((starter, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => sendMessage(starter.text)}
+                      disabled={isLoading}
+                      className={`${starter.bg} border border-border rounded-xl p-4 text-left transition-all hover:shadow-md group flex items-start gap-3 disabled:opacity-50`}
+                    >
+                      <starter.icon className={`w-5 h-5 ${starter.color} shrink-0 mt-0.5`} />
+                      <span className="text-sm text-foreground leading-snug">{starter.text}</span>
+                      <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-auto" />
                     </button>
                   ))}
                 </div>
