@@ -396,12 +396,13 @@ export default function IntelligentTestGenerator() {
         <Button variant="ghost" size="sm" onClick={() => setStep(1)}>
           <ChevronLeft className="h-4 w-4 mr-1" /> Back
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">{subjectNumber} — {subjectDescription}</h1>
           <p className="text-sm text-muted-foreground">
             Step 2: Review generated questions ({generatedData.length * 20} questions across {generatedData.length} topics)
           </p>
         </div>
+        <DraftSavingIndicator isSaving={draftSaving} lastSavedAt={draftSavedAt} />
       </div>
 
       {/* Progress */}
