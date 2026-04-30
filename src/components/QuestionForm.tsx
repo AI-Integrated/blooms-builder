@@ -212,6 +212,7 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
         // Create new question
         const newQuestion = await Questions.create(questionData);
         toast.success('Question created successfully!');
+        await clearDraft();
         onSave(newQuestion);
       }
 
@@ -226,13 +227,30 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
   return (
     <Card className="bg-card/80 backdrop-blur-sm border border-border/50 shadow-elegant">
       <CardHeader className="border-b border-border/50">
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="w-6 h-6 text-primary" />
-          {existingQuestion ? 'Edit Question' : 'Create New Question'}
+        <CardTitle className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <FileText className="w-6 h-6 text-primary" />
+            {existingQuestion ? 'Edit Question' : 'Create New Question'}
+          </span>
+          <DraftSavingIndicator isSaving={draftSaving} lastSavedAt={draftSavedAt} />
         </CardTitle>
       </CardHeader>
       
       <CardContent className="space-y-6 p-6">
+        {restoredDraft && !existingQuestion && (
+          <DraftRestoreBanner
+            updatedAt={restoredDraft.updatedAt}
+            onRestore={() => {
+              setFormData(restoredDraft.payload as typeof formData);
+              dismissRestore();
+              toast.success('Draft restored');
+            }}
+            onDismiss={() => {
+              clearDraft();
+              dismissRestore();
+            }}
+          />
+        )}
         {/* Basic Question Info */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
