@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useDraftPersistence } from '@/hooks/useDraftPersistence';
+import { DraftRestoreBanner, DraftSavingIndicator } from '@/components/DraftRestoreBanner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -110,6 +112,32 @@ export default function IntelligentTestGenerator() {
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  // Auto-save draft so wizard progress survives tab discards / refreshes.
+  const draftData = { step, subjectNumber, subjectDescription, topics, generatedData };
+  const {
+    restoredDraft,
+    isSaving: draftSaving,
+    lastSavedAt: draftSavedAt,
+    clearDraft,
+    dismissRestore,
+  } = useDraftPersistence({
+    draftKey: 'intelligent-test-generator',
+    data: draftData,
+    isEmpty: (d) => !d.subjectDescription?.trim() && d.topics.length === 0 && d.generatedData.length === 0,
+  });
+
+  const handleRestoreDraft = () => {
+    if (!restoredDraft) return;
+    const p = restoredDraft.payload as typeof draftData;
+    setStep(p.step ?? 1);
+    setSubjectNumber(p.subjectNumber ?? '');
+    setSubjectDescription(p.subjectDescription ?? '');
+    setTopics(p.topics ?? []);
+    setGeneratedData(p.generatedData ?? []);
+    dismissRestore();
+    toast({ title: 'Draft restored', description: 'Your previous work has been loaded.' });
+  };
 
   const handleGenerateTopics = async () => {
     if (!subjectDescription.trim()) {
@@ -251,6 +279,7 @@ export default function IntelligentTestGenerator() {
       await Questions.bulkInsert(allQuestions);
 
       toast({ title: 'Success', description: `Saved ${allQuestions.length} questions to the question bank.` });
+      await clearDraft();
       navigate('/admin/question-bank');
     } catch (error: any) {
       toast({ title: 'Error', description: error.message || 'Failed to save questions', variant: 'destructive' });
