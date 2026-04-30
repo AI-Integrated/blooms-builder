@@ -294,11 +294,21 @@ export default function IntelligentTestGenerator() {
   if (step === 1) {
     return (
       <div className="container mx-auto py-8 px-4 max-w-3xl space-y-6">
+        {restoredDraft && (
+          <DraftRestoreBanner
+            updatedAt={restoredDraft.updatedAt}
+            onRestore={handleRestoreDraft}
+            onDismiss={() => { clearDraft(); dismissRestore(); }}
+          />
+        )}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Wand2 className="h-6 w-6" />
-              Smart Question Builder
+            <CardTitle className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <Wand2 className="h-6 w-6" />
+                Smart Question Builder
+              </span>
+              <DraftSavingIndicator isSaving={draftSaving} lastSavedAt={draftSavedAt} />
             </CardTitle>
             <CardDescription>Step 1: Enter subject details and generate topics</CardDescription>
           </CardHeader>
