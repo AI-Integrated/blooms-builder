@@ -14,6 +14,8 @@ import { EdgeFunctions } from '@/services/edgeFunctions';
 import { classifyQuestion } from '@/services/ai/classify';
 import { TaxonomyMatrixSelector } from '@/components/classification/TaxonomyMatrixSelector';
 import { toast } from 'sonner';
+import { useDraftPersistence } from '@/hooks/useDraftPersistence';
+import { DraftRestoreBanner, DraftSavingIndicator } from '@/components/DraftRestoreBanner';
 
 interface QuestionFormProps {
   onSave: (question: any) => void;
@@ -43,6 +45,22 @@ export const QuestionForm: React.FC<QuestionFormProps> = ({
 
   const [saving, setSaving] = useState(false);
   const [classifying, setClassifying] = useState(false);
+
+  // Auto-save draft so work survives tab discards / browser refreshes.
+  // Disabled when editing an existing question (we don't want to overwrite a saved record with stale draft).
+  const draftKey = existingQuestion ? `manual-question:${existingQuestion.id}` : 'manual-question:new';
+  const {
+    restoredDraft,
+    isSaving: draftSaving,
+    lastSavedAt: draftSavedAt,
+    clearDraft,
+    dismissRestore,
+  } = useDraftPersistence({
+    draftKey,
+    data: formData,
+    enabled: !existingQuestion,
+    isEmpty: (d) => !d.question_text?.trim() && !d.topic?.trim(),
+  });
 
   useEffect(() => {
     if (existingQuestion) {
