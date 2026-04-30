@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useDraftPersistence } from '@/hooks/useDraftPersistence';
+import { DraftRestoreBanner, DraftSavingIndicator } from '@/components/DraftRestoreBanner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -110,6 +112,32 @@ export default function IntelligentTestGenerator() {
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  // Auto-save draft so wizard progress survives tab discards / refreshes.
+  const draftData = { step, subjectNumber, subjectDescription, topics, generatedData };
+  const {
+    restoredDraft,
+    isSaving: draftSaving,
+    lastSavedAt: draftSavedAt,
+    clearDraft,
+    dismissRestore,
+  } = useDraftPersistence({
+    draftKey: 'intelligent-test-generator',
+    data: draftData,
+    isEmpty: (d) => !d.subjectDescription?.trim() && d.topics.length === 0 && d.generatedData.length === 0,
+  });
+
+  const handleRestoreDraft = () => {
+    if (!restoredDraft) return;
+    const p = restoredDraft.payload as typeof draftData;
+    setStep(p.step ?? 1);
+    setSubjectNumber(p.subjectNumber ?? '');
+    setSubjectDescription(p.subjectDescription ?? '');
+    setTopics(p.topics ?? []);
+    setGeneratedData(p.generatedData ?? []);
+    dismissRestore();
+    toast({ title: 'Draft restored', description: 'Your previous work has been loaded.' });
+  };
 
   const handleGenerateTopics = async () => {
     if (!subjectDescription.trim()) {
@@ -251,6 +279,7 @@ export default function IntelligentTestGenerator() {
       await Questions.bulkInsert(allQuestions);
 
       toast({ title: 'Success', description: `Saved ${allQuestions.length} questions to the question bank.` });
+      await clearDraft();
       navigate('/admin/question-bank');
     } catch (error: any) {
       toast({ title: 'Error', description: error.message || 'Failed to save questions', variant: 'destructive' });
@@ -265,11 +294,21 @@ export default function IntelligentTestGenerator() {
   if (step === 1) {
     return (
       <div className="container mx-auto py-8 px-4 max-w-3xl space-y-6">
+        {restoredDraft && (
+          <DraftRestoreBanner
+            updatedAt={restoredDraft.updatedAt}
+            onRestore={handleRestoreDraft}
+            onDismiss={() => { clearDraft(); dismissRestore(); }}
+          />
+        )}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Wand2 className="h-6 w-6" />
-              Smart Question Builder
+            <CardTitle className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <Wand2 className="h-6 w-6" />
+                Smart Question Builder
+              </span>
+              <DraftSavingIndicator isSaving={draftSaving} lastSavedAt={draftSavedAt} />
             </CardTitle>
             <CardDescription>Step 1: Enter subject details and generate topics</CardDescription>
           </CardHeader>
@@ -357,12 +396,13 @@ export default function IntelligentTestGenerator() {
         <Button variant="ghost" size="sm" onClick={() => setStep(1)}>
           <ChevronLeft className="h-4 w-4 mr-1" /> Back
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">{subjectNumber} — {subjectDescription}</h1>
           <p className="text-sm text-muted-foreground">
             Step 2: Review generated questions ({generatedData.length * 20} questions across {generatedData.length} topics)
           </p>
         </div>
+        <DraftSavingIndicator isSaving={draftSaving} lastSavedAt={draftSavedAt} />
       </div>
 
       {/* Progress */}

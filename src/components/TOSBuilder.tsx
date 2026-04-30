@@ -34,6 +34,8 @@ import {
 } from "@/utils/tosCalculator";
 import { ExamFormatSelector, SelectedFormatSummary } from "@/components/generation/ExamFormatSelector";
 import { EXAM_FORMATS, getDefaultFormat, getExamFormat } from "@/types/examFormats";
+import { useDraftPersistence } from "@/hooks/useDraftPersistence";
+import { DraftRestoreBanner, DraftSavingIndicator } from "@/components/DraftRestoreBanner";
 
 const topicSchema = z.object({
   topic: z.string().min(1, "Topic name is required"),
@@ -105,6 +107,41 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
   });
 
   const { register, handleSubmit, formState: { errors }, setValue, watch, reset } = form;
+
+  // ===== Draft auto-save (survives tab discards / 10+ minute backgrounds) =====
+  const watchedValues = watch();
+  const draftPayload = { form: watchedValues, topics, selectedFormatId };
+  const {
+    restoredDraft,
+    isSaving: draftSaving,
+    lastSavedAt: draftSavedAt,
+    clearDraft,
+    dismissRestore,
+  } = useDraftPersistence({
+    draftKey: 'tos-builder',
+    data: draftPayload,
+    enabled: !tosMatrix?.id, // stop drafting once persisted to DB
+    isEmpty: (d) =>
+      !d.form?.subject_no?.trim?.() &&
+      !d.form?.course?.trim?.() &&
+      !d.form?.description?.trim?.() &&
+      (!d.topics || d.topics.every((t: any) => !t.topic?.trim())),
+  });
+
+  const handleRestoreTOSDraft = () => {
+    if (!restoredDraft) return;
+    const p = restoredDraft.payload as typeof draftPayload;
+    if (p.topics?.length) setTopics(p.topics);
+    if (p.selectedFormatId) setSelectedFormatId(p.selectedFormatId);
+    if (p.form) {
+      reset({
+        ...p.form,
+        topics: p.topics ?? p.form.topics ?? [{ topic: "", hours: 0 }],
+      } as any);
+    }
+    dismissRestore();
+    toast.success("Draft restored");
+  };
 
   // Apply template data when navigated with state
   useEffect(() => {
@@ -305,6 +342,7 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
       setTosMatrix({ ...tosMatrix, id: savedTOS.id });
       
       toast.success("TOS matrix saved successfully!");
+      await clearDraft();
     } catch (error) {
       console.error('Error saving TOS:', error);
       toast.error("Failed to save TOS matrix");
@@ -568,11 +606,19 @@ export const TOSBuilder = ({ onBack }: TOSBuilderProps) => {
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
+      {restoredDraft && (
+        <DraftRestoreBanner
+          updatedAt={restoredDraft.updatedAt}
+          onRestore={handleRestoreTOSDraft}
+          onDismiss={() => { clearDraft(); dismissRestore(); }}
+        />
+      )}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="flex items-center gap-2 text-academic-primary">
               <Calculator className="h-5 w-5" />
               Table of Specification Builder
+              <span className="ml-2"><DraftSavingIndicator isSaving={draftSaving} lastSavedAt={draftSavedAt} /></span>
           </CardTitle>
           <TOSUploadParser onParsed={(data) => {
             const parsedTopics = data.topics.length > 0 ? data.topics : [{ topic: "", hours: 0 }];
